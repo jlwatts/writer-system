@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+SYSTEM_DIR="$(dirname "$(readlink -f "$0")")"
+echo "Starting Writer System..."
+cd "$SYSTEM_DIR"
+docker compose up -d --build
+echo "Started. Run 'writer-status' to check logs."

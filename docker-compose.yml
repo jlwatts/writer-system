@@ -1,0 +1,46 @@
+version: '3.8'
+
+services:
+  signal-cli:
+    image: bbernhard/signal-cli-rest-api:latest
+    container_name: signal_gateway
+    environment:
+      - MODE=native
+    volumes:
+      - ./signal-data:/home/pb/.local/share/signal-cli
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: local_llm
+    volumes:
+      - ./ollama-data:/root/.ollama
+    ports:
+      - "11434:11434"
+    restart: unless-stopped
+
+  syncthing:
+    image: syncthing/syncthing:latest
+    container_name: vault_sync
+    volumes:
+      - ./vault:/var/syncthing/vault
+    ports:
+      - "8384:8384"
+      - "22000:22000/tcp"
+      - "22000:22000/udp"
+    restart: unless-stopped
+
+  writer-bot:
+    build: .
+    container_name: writer_bot
+    depends_on:
+      - signal-cli
+      - ollama
+    env_file:
+      - .env
+    volumes:
+      - ./vault:/app/vault
+      - /var/run/docker.sock:/var/run/docker.sock
+    restart: unless-stopped

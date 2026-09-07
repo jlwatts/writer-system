@@ -1,0 +1,6 @@
+.env
+signal-data/
+ollama-data/
+vault/
+__pycache__/
+*.pyc

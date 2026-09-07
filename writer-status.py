@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+SYSTEM_DIR="$(dirname "$(readlink -f "$0")")"
+cd "$SYSTEM_DIR"
+echo "=== Container Status ==="
+docker compose ps
+echo ""
+echo "=== Tailing Bot Logs (Ctrl+C to exit) ==="
+docker compose logs -f --tail=50 writer-bot
