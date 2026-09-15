@@ -1,0 +1,138 @@
+/* Lock screen bounds to prevent soft-keyboard page pushes */
+html, body {
+    height: 100%;
+    width: 100%;
+    overflow: hidden;
+    touch-action: manipulation;
+}
+
+.edge-rail {
+    width: 1.7rem;
+    flex-shrink: 0;
+    align-self: flex-start;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-top: 0.75rem;
+    padding: 0.85rem 0;
+    background: #1f2937;
+    border: 1px solid #374151;
+    border-left: none;
+    border-radius: 0 0.4rem 0.4rem 0;
+    color: #d1d5db;
+    cursor: pointer;
+}
+
+.edge-rail.hidden,
+#file-sidebar.hidden,
+#guppy-pane.hidden {
+    display: none !important;
+}
+
+.edge-rail:hover {
+    background: #374151;
+    color: #fff;
+}
+
+.edge-rail span {
+    writing-mode: vertical-rl;
+    transform: rotate(180deg);
+    letter-spacing: 0.18em;
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.edge-rail-guppy span {
+    color: #34d399;
+}
+
+.edge-rail-files span {
+    color: #818cf8;
+}
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: #1f2937; }
+::-webkit-scrollbar-thumb { background: #374151; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #4b5563; }
+
+textarea.auto-expand {
+    resize: none;
+    overflow-y: hidden;
+    min-height: 42px;
+    max-height: 120px;
+}
+
+.tree-children {
+    margin-left: 0.75rem;
+    border-left: 1px solid #374151;
+    padding-left: 0.5rem;
+}
+
+.tree-item.active-file {
+    background: #312e81;
+    color: #e0e7ff;
+}
+
+.context-menu {
+    position: fixed;
+    z-index: 80;
+    min-width: 11rem;
+    background: #1f2937;
+    border: 1px solid #4b5563;
+    border-radius: 0.5rem;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.45);
+    padding: 0.25rem 0;
+}
+
+.todo-item.dragging {
+    opacity: 0.55;
+}
+
+.todo-item.overdue {
+    background: rgba(127, 29, 29, 0.28);
+}
+
+.todo-due-label {
+    font-size: 0.7rem;
+    white-space: nowrap;
+    cursor: pointer;
+    border-radius: 9999px;
+    padding: 0.15rem 0.5rem;
+    background: #111827;
+    border: 1px solid #374151;
+}
+
+.todo-due-label:hover {
+    border-color: #6366f1;
+}
+
+.todo-due-label.overdue { color: #f87171; font-weight: 600; }
+.todo-due-label.due-today { color: #fbbf24; font-weight: 600; }
+.todo-due-label.upcoming { color: #94a3b8; }
+
+.todo-resolved-label {
+    cursor: default;
+    color: #86efac;
+    font-weight: 500;
+}
+
+.todo-filter-btn {
+    font-size: 0.7rem;
+    padding: 0.2rem 0.55rem;
+    border-radius: 9999px;
+    border: 1px solid #374151;
+    color: #9ca3af;
+    background: transparent;
+}
+
+.todo-filter-btn:hover {
+    border-color: #6366f1;
+    color: #e5e7eb;
+}
+
+.todo-filter-btn.active {
+    background: #4338ca;
+    border-color: #6366f1;
+    color: #fff;
+}

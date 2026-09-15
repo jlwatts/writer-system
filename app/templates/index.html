@@ -1,0 +1,1405 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full overflow-hidden">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, interactive-widget=resizes-visual">
+    <title>Writer System</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="/static/writer.css">
+</head>
+<body class="bg-gray-900 text-gray-100 h-full w-full font-sans antialiased relative">
+
+    <!-- FIXED TOP HEADER -->
+    <header class="fixed top-0 left-0 right-0 h-14 bg-gray-800 border-b border-gray-700 px-4 py-2 flex items-center justify-between z-30 shadow-md">
+        <div class="flex items-center space-x-3">
+            <span class="font-bold text-base sm:text-lg text-indigo-400 tracking-wide">WriterSystem</span>
+            
+            <!-- Vault Selector -->
+            <select id="vault-select" onchange="onVaultChange()" class="bg-gray-700 text-gray-200 text-xs sm:text-sm rounded-md border border-gray-600 px-2 py-1 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                <option value="default">default</option>
+            </select>
+        </div>
+
+        <!-- 3 TABS -->
+        <nav class="flex space-x-1 bg-gray-900 p-1 rounded-lg border border-gray-700">
+            <button onclick="switchTab('editor')" id="tab-btn-editor" class="tab-btn px-2.5 py-1 text-xs sm:text-sm font-medium rounded-md bg-indigo-600 text-white transition-colors">
+                Editor
+            </button>
+            <button onclick="switchTab('todos')" id="tab-btn-todos" class="tab-btn px-2.5 py-1 text-xs sm:text-sm font-medium rounded-md text-gray-400 hover:text-gray-200 transition-colors">
+                TODOs
+            </button>
+            <button onclick="switchTab('conversation')" id="tab-btn-conversation" class="tab-btn px-2.5 py-1 text-xs sm:text-sm font-medium rounded-md text-gray-400 hover:text-gray-200 transition-colors">
+                Conversation
+            </button>
+        </nav>
+    </header>
+
+    <!-- MAIN VIEWS (Padded top and bottom for fixed bars) -->
+    <main class="w-full h-full pt-14 bg-gray-900 flex flex-col box-border">
+        
+        <!-- 1. EDITOR TAB WITH LEFT SIDEBAR -->
+        <div id="tab-editor" class="tab-content flex-1 flex flex-row min-h-0 relative overflow-hidden">
+            
+            <!-- LEFT COLLAPSIBLE FILE TREE SIDEBAR -->
+            <aside id="file-sidebar" class="w-64 bg-gray-800/95 border-r border-gray-700 flex flex-col shrink-0 transition-all duration-300 ease-in-out z-20">
+                <div class="p-3 border-b border-gray-700 flex justify-between items-center shrink-0">
+                    <span class="text-xs font-semibold uppercase tracking-wider text-gray-400 flex items-center gap-1.5">
+                        <svg class="w-4 h-4 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
+                        Files
+                    </span>
+                    <div class="flex items-center space-x-1">
+                        <button onclick="createNewFile('')" class="text-gray-400 hover:text-indigo-400 p-1 text-xs rounded hover:bg-gray-700" title="New file">
+                            +
+                        </button>
+                        <button onclick="loadFiles()" class="text-gray-400 hover:text-indigo-400 p-1 text-xs rounded hover:bg-gray-700" title="Refresh Files">
+                            🔄
+                        </button>
+                        <button onclick="toggleSidebar()" class="text-gray-400 hover:text-gray-200 p-1 text-xs rounded hover:bg-gray-700" title="Collapse Sidebar">
+                            ◀
+                        </button>
+                    </div>
+                </div>
+                <div id="file-tree-container" class="flex-1 p-2 overflow-y-auto text-xs sm:text-sm">
+                    <div class="text-gray-500 italic p-2">Loading file tree...</div>
+                </div>
+            </aside>
+
+            <button id="sidebar-expand-btn" type="button" onclick="toggleSidebar()" class="edge-rail edge-rail-files hidden" title="Open files">
+                <span>Files</span>
+            </button>
+
+            <!-- MAIN EDITOR CONTAINER -->
+            <div class="flex-1 flex flex-col p-4 min-h-0 bg-gray-900">
+                <div class="flex items-center gap-2 mb-2 shrink-0 min-w-0">
+                    <button type="button" id="filename-display" onclick="startInlineRename()" class="min-w-0 flex-1 flex items-center gap-1.5 text-left group">
+                        <span id="filename-truncated" class="min-w-0 block text-base sm:text-lg font-semibold text-gray-200 whitespace-nowrap overflow-hidden" title="untitled.md">untitled.md</span>
+                        <svg class="w-4 h-4 shrink-0 text-gray-500 group-hover:text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536M4 20h4.586a1 1 0 00.707-.293l9.414-9.414a2 2 0 000-2.828l-3.172-3.172a2 2 0 00-2.828 0L4.293 14.707A1 1 0 004 15.414V20z"/>
+                        </svg>
+                    </button>
+                    <input type="text" id="filename-editor" class="hidden flex-1 bg-gray-800 text-base sm:text-lg font-semibold text-gray-200 rounded-md border border-indigo-500 px-2 py-0.5 min-w-0" />
+                    <span id="save-status" class="text-[11px] sm:text-xs text-gray-500 shrink-0">Unsaved</span>
+                </div>
+                <textarea id="editor-textarea" class="w-full flex-1 bg-gray-800 text-gray-100 p-3.5 rounded-lg border border-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono text-sm resize-none" placeholder="Create a new file or select one from the sidebar..."></textarea>
+            </div>
+        </div>
+
+        <!-- 2. TODOS TAB -->
+        <div id="tab-todos" class="tab-content hidden flex-1 flex flex-row min-h-0 relative overflow-hidden">
+            <aside id="guppy-pane" class="w-72 bg-gray-800/95 border-r border-gray-700 flex flex-col shrink-0 transition-all duration-300 ease-in-out z-20 min-h-0">
+                <div class="p-3 border-b border-gray-700 flex justify-between items-center shrink-0">
+                    <span class="text-xs font-semibold uppercase tracking-wider text-emerald-400">Guppy</span>
+                    <button type="button" onclick="toggleGuppyPane()" class="text-gray-400 hover:text-gray-200 p-1 text-xs rounded hover:bg-gray-700" title="Collapse Guppy">
+                        ◀
+                    </button>
+                </div>
+                <div id="guppy-body" class="flex-1 min-h-0 flex flex-col">
+                    <div id="guppy-messages" class="flex-1 overflow-y-auto p-3 space-y-3 text-sm">
+                        <div class="bg-gray-700/60 p-3 rounded-lg max-w-xl text-sm border border-gray-600">
+                            <span class="block text-xs font-semibold text-emerald-400 mb-1">Guppy</span>
+                            Tell me to add, finish, reopen, delete, or reshuffle tasks. You can also ask what's on the list and how I'd prioritize it.
+                        </div>
+                    </div>
+                    <div class="shrink-0 p-2.5 border-t border-gray-700 flex items-end gap-2">
+                        <div class="flex-1 bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 focus-within:ring-2 focus-within:ring-emerald-500">
+                            <textarea id="guppy-input" rows="1" placeholder="Ask Guppy to add, finish, or sort to-dos…" class="auto-expand w-full bg-gray-900 text-gray-100 placeholder-gray-500 focus:outline-none text-xs sm:text-sm leading-relaxed block"></textarea>
+                        </div>
+                        <button id="send-guppy-btn" type="button" onclick="submitChat('todos')" class="px-3.5 py-2 bg-emerald-700 hover:bg-emerald-600 text-white text-xs sm:text-sm font-medium rounded-lg shadow shrink-0">Send</button>
+                    </div>
+                </div>
+            </aside>
+
+            <button id="guppy-expand-btn" type="button" onclick="toggleGuppyPane()" class="edge-rail edge-rail-guppy hidden" title="Open Guppy">
+                <span>Guppy</span>
+            </button>
+
+            <div class="flex-1 min-h-0 min-w-0 flex flex-col p-4 sm:p-6">
+                <div class="flex justify-between items-center shrink-0 gap-3 mb-3 flex-wrap">
+                    <h2 class="text-lg sm:text-xl font-bold text-gray-200">Vault TODOs</h2>
+                    <div class="flex items-center gap-3 flex-wrap">
+                        <div id="todo-filters" class="flex items-center gap-1">
+                            <button type="button" class="todo-filter-btn active" data-filter="open" onclick="setTodoFilter('open')">Open</button>
+                            <button type="button" class="todo-filter-btn" data-filter="done" onclick="setTodoFilter('done')">Done</button>
+                            <button type="button" class="todo-filter-btn" data-filter="all" onclick="setTodoFilter('all')">All</button>
+                        </div>
+                        <span id="todo-save-status" class="text-[11px] sm:text-xs text-gray-500">Saved</span>
+                        <button onclick="loadTodos({force: true})" class="text-xs sm:text-sm text-indigo-400 hover:text-indigo-300 hover:underline">
+                            Reload
+                        </button>
+                    </div>
+                </div>
+                <div class="flex-1 min-h-0 min-w-0 bg-gray-800 rounded-lg border border-gray-700 flex flex-col">
+                    <ul id="todo-list" class="flex-1 overflow-y-auto divide-y divide-gray-700"></ul>
+                    <form id="todo-add-form" class="shrink-0 p-3 border-t border-gray-700 flex items-center gap-2 flex-wrap" onsubmit="event.preventDefault(); addTodo();">
+                        <input id="todo-new-input" type="text" placeholder="Add a to-do..." class="flex-1 min-w-[10rem] bg-gray-900 border border-gray-700 rounded-md px-3 py-2 text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                        <button type="button" id="todo-new-due-btn" onclick="openDuePopover(event, 'new')" class="todo-due-label upcoming">No date</button>
+                        <button type="submit" class="px-3 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs sm:text-sm font-medium rounded-md shrink-0">Add</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- 3. CONVERSATION TAB -->
+        <div id="tab-conversation" class="tab-content hidden flex-1 p-4 sm:p-6 bg-gray-900 flex flex-col min-h-0">
+            <div class="max-w-4xl mx-auto w-full flex-1 flex flex-col min-h-0">
+                <h2 class="text-lg sm:text-xl font-bold text-gray-200 mb-4 shrink-0">Writing conversation</h2>
+                <div id="chat-messages" class="flex-1 bg-gray-800 rounded-lg border border-gray-700 p-4 overflow-y-auto space-y-4 min-h-0">
+                    <div class="bg-gray-700/60 p-3 rounded-lg max-w-xl text-sm border border-gray-600">
+                        <span class="block text-xs font-semibold text-indigo-400 mb-1">System</span>
+                        Welcome to WriterSystem. Send a message below to chat with Gemini or process text.
+                    </div>
+                </div>
+                <div class="shrink-0 pt-3 flex items-end gap-2">
+                    <div class="flex-1 bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 focus-within:ring-2 focus-within:ring-indigo-500 focus-within:border-transparent">
+                        <textarea
+                            id="chat-input"
+                            rows="1"
+                            placeholder="Ask AI or instruct edits (Press Shift+Enter for new line)..."
+                            class="auto-expand w-full bg-gray-900 text-gray-100 placeholder-gray-500 focus:outline-none text-xs sm:text-sm leading-relaxed block"
+                        ></textarea>
+                    </div>
+                    <button
+                        id="send-chat-btn"
+                        type="button"
+                        onclick="submitChat('writing')"
+                        class="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs sm:text-sm font-medium rounded-lg shadow shrink-0"
+                    >
+                        Send
+                    </button>
+                </div>
+            </div>
+        </div>
+
+    </main>
+
+    <div id="due-popover" class="hidden fixed z-[70] w-64 bg-gray-800 border border-gray-600 rounded-lg shadow-2xl p-3">
+        <p class="text-[11px] text-gray-400 mb-2">Due date</p>
+        <input id="due-popover-cal" type="date" class="w-full bg-gray-900 border border-gray-700 rounded-md px-2 py-1.5 text-sm text-gray-200 mb-3">
+        <p id="due-popover-error" class="hidden text-[11px] text-red-400 mb-2"></p>
+        <div class="flex justify-between gap-2">
+            <button type="button" onclick="clearDuePopover()" class="px-2 py-1 text-xs rounded-md bg-gray-700 text-gray-200 hover:bg-gray-600">Clear</button>
+            <button type="button" onclick="applyDuePopover()" class="px-2 py-1 text-xs rounded-md bg-indigo-600 text-white hover:bg-indigo-500">Set</button>
+        </div>
+    </div>
+
+    <div id="folder-modal" class="modal-overlay fixed inset-0 z-50 hidden items-center justify-center p-4">
+        <div class="bg-gray-800 border border-gray-600 rounded-lg w-full max-w-md max-h-[80vh] flex flex-col shadow-2xl">
+            <div class="px-4 py-3 border-b border-gray-700">
+                <h3 id="folder-modal-title" class="text-sm font-semibold text-gray-100">Move file</h3>
+                <p id="folder-modal-subtitle" class="text-xs text-gray-400 mt-1"></p>
+            </div>
+            <div id="folder-modal-list" class="flex-1 overflow-y-auto p-2 text-sm"></div>
+            <div class="px-4 py-3 border-t border-gray-700 flex justify-end gap-2">
+                <button onclick="closeFolderModal()" class="px-3 py-1.5 text-xs rounded-md bg-gray-700 text-gray-200 hover:bg-gray-600">Cancel</button>
+                <button id="folder-modal-confirm" onclick="confirmFolderModal()" class="px-3 py-1.5 text-xs rounded-md bg-indigo-600 text-white hover:bg-indigo-500">Move</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="conflict-modal" class="modal-overlay fixed inset-0 z-[60] hidden items-center justify-center p-4">
+        <div class="bg-gray-800 border border-gray-600 rounded-lg w-full max-w-sm p-4 shadow-2xl">
+            <h3 class="text-sm font-semibold text-gray-100 mb-2">File already exists</h3>
+            <p id="conflict-message" class="text-xs text-gray-300 mb-4"></p>
+            <div class="flex flex-col sm:flex-row gap-2">
+                <button onclick="resolveConflict('replace')" class="px-3 py-1.5 text-xs rounded-md bg-red-700 text-white hover:bg-red-600">Replace</button>
+                <button id="conflict-keep-btn" onclick="resolveConflict('keep')" class="px-3 py-1.5 text-xs rounded-md bg-indigo-600 text-white hover:bg-indigo-500">Keep both</button>
+                <button onclick="resolveConflict('cancel')" class="px-3 py-1.5 text-xs rounded-md bg-gray-700 text-gray-200 hover:bg-gray-600">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="context-menu" class="context-menu hidden"></div>
+
+    <!-- JAVASCRIPT LOGIC -->
+    <script>
+        let activeTab = 'editor';
+        let isSidebarOpen = localStorage.getItem('writer-files-open') !== 'false';
+        let currentFilePath = '';
+        let lastSavedContent = '';
+        let saveTimer = null;
+        let materializePromise = null;
+        let autosaveInFlight = false;
+        let pendingAutosave = false;
+        const UNTITLED_NAME = 'untitled.md';
+        let knownFolders = [''];
+        let expandedFolders = new Set();
+        let pendingConflict = null;
+        let folderModal = null;
+        let todoItems = [];
+        let todoVault = '';
+        let todoSaveTimer = null;
+        let todoDragIndex = null;
+        let guppyOpen = localStorage.getItem('writer-guppy-open') !== 'false';
+        let newTodoDue = null;
+        let duePopoverTarget = null;
+        let todoFilter = localStorage.getItem('writer-todo-filter') || 'open';
+
+        const chatInput = document.getElementById('chat-input');
+        const guppyInput = document.getElementById('guppy-input');
+        const editor = document.getElementById('editor-textarea');
+        const contextMenu = document.getElementById('context-menu');
+        const treeContainer = document.getElementById('file-tree-container');
+
+        function currentVault() {
+            return document.getElementById('vault-select').value;
+        }
+
+        function fileNameOf(path) {
+            return (path || '').split('/').pop() || path;
+        }
+
+        function folderOf(path) {
+            const parts = (path || '').split('/');
+            parts.pop();
+            return parts.join('/');
+        }
+
+        function setSaveStatus(text, colorClass = 'text-gray-500') {
+            const el = document.getElementById('save-status');
+            el.textContent = text;
+            el.className = `text-[11px] sm:text-xs shrink-0 ${colorClass}`;
+        }
+
+        function middleEllipsis(text, maxChars) {
+            if (!text || text.length <= maxChars) return text;
+            const extMatch = text.match(/(\.[^./]+)$/);
+            const ext = extMatch ? extMatch[1] : '';
+            const body = ext ? text.slice(0, -ext.length) : text;
+            const budget = Math.max(4, maxChars - ext.length - 1);
+            const front = Math.max(2, Math.ceil(budget * 0.55));
+            const back = Math.max(1, budget - front);
+            return `${body.slice(0, front)}…${body.slice(-back)}${ext}`;
+        }
+
+        function untitledLabel() {
+            return currentFilePath ? fileNameOf(currentFilePath) : UNTITLED_NAME;
+        }
+
+        function updateFilenameLabel() {
+            const label = document.getElementById('filename-truncated');
+            const display = document.getElementById('filename-display');
+            const full = currentFilePath || UNTITLED_NAME;
+            const base = untitledLabel();
+            label.title = full;
+            const width = display.clientWidth - 28;
+            const maxChars = Math.max(12, Math.floor(width / 8.2));
+            label.textContent = middleEllipsis(base, maxChars);
+        }
+
+        function setCurrentFile(path, content, { saved = true } = {}) {
+            currentFilePath = path || '';
+            editor.value = content ?? '';
+            lastSavedContent = saved ? editor.value : null;
+            updateFilenameLabel();
+            highlightActiveFile();
+            setSaveStatus(saved ? 'Saved' : 'Unsaved', saved ? 'text-gray-500' : 'text-amber-400');
+        }
+
+        function switchTab(tabName, options = {}) {
+            activeTab = tabName;
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+            document.querySelectorAll('.tab-btn').forEach(btn => {
+                btn.classList.remove('bg-indigo-600', 'text-white');
+                btn.classList.add('text-gray-400');
+            });
+            document.getElementById(`tab-${tabName}`).classList.remove('hidden');
+            const activeBtn = document.getElementById(`tab-btn-${tabName}`);
+            activeBtn.classList.add('bg-indigo-600', 'text-white');
+            activeBtn.classList.remove('text-gray-400');
+            if (tabName === 'editor') {
+                loadFiles();
+                requestAnimationFrame(updateFilenameLabel);
+            }
+            if (tabName === 'todos') {
+                if (!options.skipLoad) loadTodos();
+                if (!options.skipHistory) loadChatHistory('todos');
+            }
+            if (tabName === 'conversation' && !options.skipHistory) loadChatHistory('writing');
+        }
+
+        function applyFilesPane() {
+            const sidebar = document.getElementById('file-sidebar');
+            const rail = document.getElementById('sidebar-expand-btn');
+            if (!sidebar || !rail) return;
+            if (isSidebarOpen) {
+                sidebar.classList.remove('hidden');
+                rail.classList.add('hidden');
+            } else {
+                sidebar.classList.add('hidden');
+                rail.classList.remove('hidden');
+            }
+        }
+
+        function toggleSidebar() {
+            isSidebarOpen = !isSidebarOpen;
+            localStorage.setItem('writer-files-open', String(isSidebarOpen));
+            applyFilesPane();
+        }
+
+        function bindExpandingInput(el, submitChannel) {
+            if (!el) return;
+            el.addEventListener('input', function() {
+                this.style.height = 'auto';
+                const calculatedHeight = Math.min(this.scrollHeight, 120);
+                this.style.height = `${calculatedHeight}px`;
+                this.style.overflowY = this.scrollHeight > 120 ? 'auto' : 'hidden';
+            });
+            el.addEventListener('keydown', function(e) {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    submitChat(submitChannel);
+                }
+            });
+        }
+        bindExpandingInput(chatInput, 'writing');
+        bindExpandingInput(guppyInput, 'todos');
+
+        function setGuppyOpen(open) {
+            guppyOpen = open;
+            localStorage.setItem('writer-guppy-open', String(open));
+            applyGuppyPane();
+        }
+
+        function toggleGuppyPane() {
+            setGuppyOpen(!guppyOpen);
+        }
+
+        function applyGuppyPane() {
+            const pane = document.getElementById('guppy-pane');
+            const rail = document.getElementById('guppy-expand-btn');
+            if (!pane || !rail) return;
+            if (guppyOpen) {
+                pane.classList.remove('hidden');
+                rail.classList.add('hidden');
+            } else {
+                pane.classList.add('hidden');
+                rail.classList.remove('hidden');
+            }
+        }
+
+        editor.addEventListener('input', () => {
+            setSaveStatus('Unsaved', 'text-amber-400');
+            scheduleAutosave();
+        });
+
+        function scheduleAutosave() {
+            clearTimeout(saveTimer);
+            saveTimer = setTimeout(autosaveNow, 700);
+        }
+
+        async function materializeUntitled(name) {
+            if (currentFilePath) return currentFilePath;
+            if (materializePromise) return materializePromise;
+            materializePromise = (async () => {
+                const payload = {
+                    vault: currentVault(),
+                    folder: '',
+                    content: editor.value || ''
+                };
+                const chosen = (name || '').trim();
+                if (chosen && chosen !== UNTITLED_NAME && chosen !== 'untitled') {
+                    payload.name = chosen;
+                }
+                const result = await postFileOp('/api/file/create', payload);
+                if (!result) return '';
+                currentFilePath = result.filename;
+                lastSavedContent = editor.value;
+                await loadFiles();
+                updateFilenameLabel();
+                setSaveStatus('Saved');
+                return currentFilePath;
+            })();
+            try {
+                return await materializePromise;
+            } finally {
+                materializePromise = null;
+            }
+        }
+
+        async function autosaveNow() {
+            if (autosaveInFlight) {
+                pendingAutosave = true;
+                return;
+            }
+            autosaveInFlight = true;
+            try {
+                do {
+                    pendingAutosave = false;
+                    if (!currentFilePath) {
+                        const path = await materializeUntitled();
+                        if (!path) {
+                            setSaveStatus('Save failed', 'text-red-400');
+                            return;
+                        }
+                        continue;
+                    }
+                    const content = editor.value;
+                    if (content === lastSavedContent) {
+                        setSaveStatus('Saved');
+                        continue;
+                    }
+                    setSaveStatus('Saving…', 'text-indigo-300');
+                    const res = await fetch('/api/file', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            vault: currentVault(),
+                            file_path: currentFilePath,
+                            content
+                        })
+                    });
+                    if (!res.ok) throw new Error('Save failed');
+                    lastSavedContent = content;
+                    setSaveStatus('Saved');
+                } while (pendingAutosave);
+            } catch (e) {
+                setSaveStatus('Save failed', 'text-red-400');
+            } finally {
+                autosaveInFlight = false;
+            }
+        }
+
+        async function loadVaults() {
+            try {
+                const res = await fetch('/api/vaults');
+                if (!res.ok) return;
+                const data = await res.json();
+                const selector = document.getElementById('vault-select');
+                if (data.vaults && data.vaults.length > 0) {
+                    selector.innerHTML = data.vaults.map(v => `<option value="${v}">${v}</option>`).join('');
+                }
+                loadFiles();
+            } catch (e) {
+                console.error('Failed to fetch vaults:', e);
+            }
+        }
+
+        function onVaultChange() {
+            currentFilePath = '';
+            lastSavedContent = '';
+            editor.value = '';
+            updateFilenameLabel();
+            setSaveStatus('Unsaved', 'text-amber-400');
+            flushTodoSave().then(() => {
+                if (activeTab === 'editor') loadFiles();
+                if (activeTab === 'todos') {
+                    loadTodos({ force: true });
+                    loadChatHistory('todos');
+                }
+                if (activeTab === 'conversation') loadChatHistory('writing');
+            });
+        }
+
+        async function loadFiles() {
+            const vault = currentVault();
+            try {
+                const res = await fetch(`/api/files?vault=${encodeURIComponent(vault)}`);
+                if (!res.ok) throw new Error('Failed to fetch file list');
+                const data = await res.json();
+                knownFolders = data.folders || [''];
+                const filteredFiles = (data.files || []).filter(filePath => {
+                    const baseName = filePath.split('/').pop().toLowerCase();
+                    return baseName !== 'todo.md' && baseName !== 'todos.md';
+                });
+                if (filteredFiles.length === 0 && knownFolders.filter(Boolean).length === 0) {
+                    treeContainer.innerHTML = `<div class="text-gray-500 text-xs p-2">No notes found. Use + to create one.</div>`;
+                    return;
+                }
+                const tree = buildTreeObject(filteredFiles, knownFolders);
+                treeContainer.innerHTML = renderTreeHTML(tree);
+                highlightActiveFile();
+            } catch (e) {
+                treeContainer.innerHTML = `<div class="text-red-400 text-xs p-2">Error: ${e.message}</div>`;
+            }
+        }
+
+        function buildTreeObject(paths, folders = []) {
+            const root = {};
+            const ensureDir = (dirPath) => {
+                if (!dirPath) return root;
+                const parts = dirPath.split('/');
+                let current = root;
+                parts.forEach((part) => {
+                    if (!current[part] || current[part] === null) current[part] = {};
+                    current = current[part];
+                });
+                return current;
+            };
+            folders.filter(Boolean).forEach(ensureDir);
+            paths.forEach(path => {
+                const parts = path.split('/');
+                let current = root;
+                parts.forEach((part, index) => {
+                    if (index === parts.length - 1) {
+                        current[part] = null;
+                    } else {
+                        if (!current[part] || current[part] === null) current[part] = {};
+                        current = current[part];
+                    }
+                });
+            });
+            return root;
+        }
+
+        function renderTreeHTML(treeNode, currentPath = '') {
+            let html = '<div class="space-y-1">';
+            for (const [key, value] of Object.entries(treeNode)) {
+                const fullPath = currentPath ? `${currentPath}/${key}` : key;
+                const isDirectory = value !== null;
+                if (isDirectory) {
+                    const open = expandedFolders.has(fullPath);
+                    html += `
+                        <div class="tree-dir">
+                            <div class="tree-row flex items-center space-x-1.5 py-1 px-1.5 rounded hover:bg-gray-700/60 cursor-pointer text-gray-300 select-none"
+                                 data-type="folder" data-path="${escapeAttr(fullPath)}" draggable="false">
+                                <span class="folder-icon text-indigo-400 text-xs">${open ? '📂' : '📁'}</span>
+                                <span class="font-medium text-xs truncate">${escapeHtml(key)}</span>
+                            </div>
+                            <div class="tree-children pl-2 ${open ? '' : 'hidden'}">
+                                ${renderTreeHTML(value, fullPath)}
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    html += `
+                        <div class="tree-row flex items-center space-x-1.5 py-1 px-2 rounded hover:bg-gray-700 cursor-pointer text-gray-400 hover:text-gray-100 transition-colors"
+                             data-type="file" data-path="${escapeAttr(fullPath)}" draggable="true">
+                            <span class="text-xs text-gray-500">📄</span>
+                            <span class="font-mono text-xs truncate">${escapeHtml(key)}</span>
+                        </div>
+                    `;
+                }
+            }
+            html += '</div>';
+            return html;
+        }
+
+        function highlightActiveFile() {
+            document.querySelectorAll('.tree-row').forEach(row => {
+                row.classList.toggle('active-file', row.dataset.type === 'file' && row.dataset.path === currentFilePath);
+            });
+        }
+
+        function toggleFolder(row) {
+            const childrenContainer = row.nextElementSibling;
+            const folderIcon = row.querySelector('.folder-icon');
+            const path = row.dataset.path;
+            if (!childrenContainer) return;
+            const opening = childrenContainer.classList.contains('hidden');
+            childrenContainer.classList.toggle('hidden', !opening);
+            folderIcon.textContent = opening ? '📂' : '📁';
+            if (opening) expandedFolders.add(path);
+            else expandedFolders.delete(path);
+        }
+
+        async function openFile(filePath) {
+            try {
+                const res = await fetch(`/api/file?vault=${encodeURIComponent(currentVault())}&path=${encodeURIComponent(filePath)}`);
+                if (!res.ok) throw new Error('Could not read file');
+                const data = await res.json();
+                setCurrentFile(data.filename || filePath, data.content, { saved: true });
+                if (activeTab !== 'editor') switchTab('editor');
+            } catch (e) {
+                alert(`Error opening ${filePath}: ${e.message}`);
+            }
+        }
+
+        async function loadTodos(options = {}) {
+            const list = document.getElementById('todo-list');
+            if (!options.force) {
+                await flushTodoSave();
+            }
+            try {
+                const res = await fetch(`/api/todos?vault=${encodeURIComponent(currentVault())}`);
+                if (!res.ok) throw new Error('Could not load todos');
+                const data = await res.json();
+                todoItems = Array.isArray(data.items) ? data.items.map(normalizeTodoItem) : [];
+                todoVault = currentVault();
+                renderTodos();
+                setTodoSaveStatus(data.exists ? 'Saved' : 'No TODO.md yet');
+            } catch (e) {
+                list.innerHTML = `<li class="p-4 text-sm text-red-400">${escapeHtml(e.message)}</li>`;
+            }
+        }
+
+        function setTodoSaveStatus(text, colorClass = 'text-gray-500') {
+            const el = document.getElementById('todo-save-status');
+            el.textContent = text;
+            el.className = `text-[11px] sm:text-xs shrink-0 ${colorClass}`;
+        }
+
+        function normalizeTodoItem(item) {
+            return {
+                text: item.text || '',
+                done: !!item.done,
+                due: item.due || null,
+                resolved: item.resolved || null
+            };
+        }
+
+        function localTodayISO() {
+            const now = new Date();
+            const year = now.getFullYear();
+            const month = String(now.getMonth() + 1).padStart(2, '0');
+            const day = String(now.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        }
+
+        function formatDueDate(iso) {
+            if (!iso) return '';
+            const parts = iso.split('-').map(Number);
+            if (parts.length !== 3 || parts.some(Number.isNaN)) return iso;
+            const date = new Date(parts[0], parts[1] - 1, parts[2]);
+            try {
+                return date.toLocaleDateString(undefined, { dateStyle: 'medium' });
+            } catch (e) {
+                return date.toLocaleDateString();
+            }
+        }
+
+        function dueStatus(item) {
+            if (!item.due || item.done) return '';
+            const today = localTodayISO();
+            if (item.due < today) return 'overdue';
+            if (item.due === today) return 'due-today';
+            return 'upcoming';
+        }
+
+        function renderTodos() {
+            const list = document.getElementById('todo-list');
+            syncTodoFilterButtons();
+            const visible = todoItems
+                .map((item, index) => ({ item, index }))
+                .filter(({ item }) => {
+                    if (todoFilter === 'open') return !item.done;
+                    if (todoFilter === 'done') return item.done;
+                    return true;
+                });
+            if (!todoItems.length) {
+                list.innerHTML = `<li class="p-4 text-sm text-gray-500">No to-dos yet. Add one below.</li>`;
+                return;
+            }
+            if (!visible.length) {
+                const empty = todoFilter === 'done' ? 'No completed to-dos.' : 'No open to-dos.';
+                list.innerHTML = `<li class="p-4 text-sm text-gray-500">${empty}</li>`;
+                return;
+            }
+            list.innerHTML = visible.map(({ item, index }) => {
+                const status = dueStatus(item);
+                const dueLabel = item.due ? formatDueDate(item.due) : 'No date';
+                const resolvedLabel = item.resolved ? `Resolved ${formatDueDate(item.resolved)}` : 'Resolved';
+                const dateControl = item.done
+                    ? `<span class="todo-due-label todo-resolved-label" title="Resolved date">${escapeHtml(resolvedLabel)}</span>`
+                    : `<button type="button" class="todo-due-label ${status}" title="Set due date" onclick="openDuePopover(event, ${index})">${escapeHtml(dueLabel)}</button>`;
+                return `
+                <li class="todo-item flex items-center gap-2 px-3 py-2 flex-wrap ${status === 'overdue' ? 'overdue' : ''}" data-index="${index}">
+                    <span class="todo-handle text-gray-500 cursor-grab select-none text-xs px-0.5" draggable="true" title="Drag to reorder">⋮⋮</span>
+                    <input type="checkbox" ${item.done ? 'checked' : ''} onchange="toggleTodo(${index})" class="shrink-0">
+                    <input type="text" value="${escapeAttr(item.text)}" onchange="editTodo(${index}, this.value)" class="flex-1 min-w-[8rem] bg-transparent text-sm ${item.done ? 'text-gray-500 line-through' : 'text-gray-100'} focus:outline-none focus:ring-1 focus:ring-indigo-500 rounded px-1 py-1">
+                    ${dateControl}
+                    <button type="button" onclick="moveTodo(${index}, -1)" class="text-gray-400 hover:text-white px-1 text-xs" title="Move up">↑</button>
+                    <button type="button" onclick="moveTodo(${index}, 1)" class="text-gray-400 hover:text-white px-1 text-xs" title="Move down">↓</button>
+                    <button type="button" onclick="deleteTodo(${index})" class="text-gray-500 hover:text-red-400 px-1 text-sm" title="Delete">×</button>
+                </li>`;
+            }).join('');
+            bindTodoDrag();
+        }
+
+        function setTodoFilter(filter) {
+            todoFilter = filter;
+            localStorage.setItem('writer-todo-filter', filter);
+            renderTodos();
+        }
+
+        function syncTodoFilterButtons() {
+            document.querySelectorAll('#todo-filters .todo-filter-btn').forEach((btn) => {
+                btn.classList.toggle('active', btn.dataset.filter === todoFilter);
+            });
+        }
+
+        function scheduleTodoSave() {
+            setTodoSaveStatus('Unsaved', 'text-amber-400');
+            clearTimeout(todoSaveTimer);
+            todoSaveTimer = setTimeout(autosaveTodos, 700);
+        }
+
+        async function flushTodoSave() {
+            if (todoSaveTimer) {
+                clearTimeout(todoSaveTimer);
+                todoSaveTimer = null;
+                await autosaveTodos();
+            }
+        }
+
+        async function autosaveTodos() {
+            setTodoSaveStatus('Saving…', 'text-indigo-300');
+            try {
+                const res = await fetch('/api/todos', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ vault: todoVault || currentVault(), items: todoItems })
+                });
+                if (!res.ok) throw new Error('Save failed');
+                setTodoSaveStatus('Saved');
+            } catch (e) {
+                setTodoSaveStatus('Save failed', 'text-red-400');
+            }
+        }
+
+        function addTodo() {
+            const input = document.getElementById('todo-new-input');
+            const text = input.value.trim();
+            if (!text) return;
+            todoItems.push({ text, done: false, due: newTodoDue, resolved: null });
+            input.value = '';
+            newTodoDue = null;
+            updateNewDueButton();
+            renderTodos();
+            scheduleTodoSave();
+            input.focus();
+        }
+
+        function isAllowedDue(iso) {
+            return !!(iso && iso >= localTodayISO());
+        }
+
+        function currentDueValue() {
+            if (duePopoverTarget === 'new') return newTodoDue;
+            if (typeof duePopoverTarget === 'number' && todoItems[duePopoverTarget]) return todoItems[duePopoverTarget].due || null;
+            return null;
+        }
+
+        function updateNewDueButton() {
+            const btn = document.getElementById('todo-new-due-btn');
+            if (!btn) return;
+            btn.textContent = newTodoDue ? formatDueDate(newTodoDue) : 'No date';
+            btn.className = `todo-due-label ${newTodoDue ? dueStatus({ due: newTodoDue, done: false }) : 'upcoming'}`;
+        }
+
+        function positionDuePopover(anchor) {
+            const pop = document.getElementById('due-popover');
+            const rect = anchor.getBoundingClientRect();
+            const width = 256;
+            const left = Math.min(window.innerWidth - width - 8, Math.max(8, rect.right - width));
+            const top = Math.min(window.innerHeight - pop.offsetHeight - 8, rect.bottom + 6);
+            pop.style.left = `${left}px`;
+            pop.style.top = `${Math.max(8, top)}px`;
+        }
+
+        function openDuePopover(event, target) {
+            event.preventDefault();
+            event.stopPropagation();
+            duePopoverTarget = target;
+            const due = currentDueValue();
+            const cal = document.getElementById('due-popover-cal');
+            const err = document.getElementById('due-popover-error');
+            const min = localTodayISO();
+            cal.min = min;
+            cal.value = due && due >= min ? due : '';
+            err.classList.add('hidden');
+            const pop = document.getElementById('due-popover');
+            pop.classList.remove('hidden');
+            positionDuePopover(event.currentTarget);
+            cal.focus();
+        }
+
+        function closeDuePopover() {
+            document.getElementById('due-popover').classList.add('hidden');
+            duePopoverTarget = null;
+        }
+
+        function showDueError(message) {
+            const err = document.getElementById('due-popover-error');
+            err.textContent = message;
+            err.classList.remove('hidden');
+        }
+
+        function applyDueValue(iso) {
+            if (duePopoverTarget === 'new') {
+                newTodoDue = iso;
+                updateNewDueButton();
+            } else if (typeof duePopoverTarget === 'number') {
+                setTodoDue(duePopoverTarget, iso);
+            }
+            closeDuePopover();
+        }
+
+        function applyDuePopover() {
+            const cal = document.getElementById('due-popover-cal').value;
+            if (!cal) {
+                applyDueValue(null);
+                return;
+            }
+            if (!isAllowedDue(cal)) {
+                showDueError('Pick today or a future date');
+                return;
+            }
+            applyDueValue(cal);
+        }
+
+        function clearDuePopover() {
+            applyDueValue(null);
+        }
+
+        document.getElementById('due-popover-cal').addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                applyDuePopover();
+            }
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                closeDuePopover();
+            }
+        });
+        document.addEventListener('click', function(e) {
+            const pop = document.getElementById('due-popover');
+            if (!pop || pop.classList.contains('hidden')) return;
+            if (pop.contains(e.target) || e.target.closest('.todo-due-label')) return;
+            closeDuePopover();
+        });
+
+        function setTodoDue(index, value) {
+            if (!todoItems[index]) return;
+            if (value && !isAllowedDue(value)) return;
+            const due = value || null;
+            if ((todoItems[index].due || null) === due) return;
+            todoItems[index].due = due;
+            renderTodos();
+            scheduleTodoSave();
+        }
+
+        function editTodo(index, value) {
+            if (!todoItems[index]) return;
+            const text = value.trim();
+            if (todoItems[index].text === text) return;
+            todoItems[index].text = text;
+            scheduleTodoSave();
+        }
+
+        function toggleTodo(index) {
+            if (!todoItems[index]) return;
+            todoItems[index].done = !todoItems[index].done;
+            todoItems[index].resolved = todoItems[index].done ? localTodayISO() : null;
+            renderTodos();
+            scheduleTodoSave();
+        }
+
+        function deleteTodo(index) {
+            todoItems.splice(index, 1);
+            renderTodos();
+            scheduleTodoSave();
+        }
+
+        function moveTodo(index, delta) {
+            const next = index + delta;
+            if (next < 0 || next >= todoItems.length) return;
+            const [item] = todoItems.splice(index, 1);
+            todoItems.splice(next, 0, item);
+            renderTodos();
+            scheduleTodoSave();
+        }
+
+        function bindTodoDrag() {
+            const list = document.getElementById('todo-list');
+            list.querySelectorAll('.todo-handle').forEach(handle => {
+                handle.addEventListener('dragstart', (e) => {
+                    const row = handle.closest('.todo-item');
+                    todoDragIndex = Number(row.dataset.index);
+                    row.classList.add('dragging');
+                    e.dataTransfer.effectAllowed = 'move';
+                    e.dataTransfer.setData('text/plain', String(todoDragIndex));
+                });
+                handle.addEventListener('dragend', () => {
+                    document.querySelectorAll('.todo-item').forEach(row => row.classList.remove('dragging'));
+                    todoDragIndex = null;
+                });
+            });
+            list.querySelectorAll('.todo-item').forEach(row => {
+                row.addEventListener('dragover', (e) => {
+                    e.preventDefault();
+                });
+                row.addEventListener('drop', (e) => {
+                    e.preventDefault();
+                    const overIndex = Number(row.dataset.index);
+                    if (todoDragIndex === null || overIndex === todoDragIndex) return;
+                    const [item] = todoItems.splice(todoDragIndex, 1);
+                    todoItems.splice(overIndex, 0, item);
+                    todoDragIndex = null;
+                    renderTodos();
+                    scheduleTodoSave();
+                });
+            });
+        }
+
+        async function createNewFile(folder) {
+            hideContextMenu();
+            if (editor.value !== lastSavedContent || (!currentFilePath && editor.value)) {
+                await autosaveNow();
+            }
+            const result = await postFileOp('/api/file/create', {
+                vault: currentVault(),
+                folder: folder || ''
+            });
+            if (!result) return;
+            await loadFiles();
+            setCurrentFile(result.filename, result.content || '', { saved: true });
+            editor.focus();
+        }
+
+        function startInlineRename() {
+            beginRename(currentFilePath || UNTITLED_NAME);
+        }
+
+        function beginRename(path) {
+            hideContextMenu();
+            const display = document.getElementById('filename-display');
+            const input = document.getElementById('filename-editor');
+            display.classList.add('hidden');
+            input.classList.remove('hidden');
+            input.value = fileNameOf(path);
+            input.dataset.renamePath = path;
+            input.focus();
+            input.select();
+        }
+
+        async function finishInlineRename() {
+            const input = document.getElementById('filename-editor');
+            const display = document.getElementById('filename-display');
+            const path = input.dataset.renamePath;
+            const newName = input.value.trim();
+            delete input.dataset.renamePath;
+            input.classList.add('hidden');
+            display.classList.remove('hidden');
+            if (!path || !newName) {
+                updateFilenameLabel();
+                return;
+            }
+            if (!currentFilePath) {
+                const pathName = await materializeUntitled(newName);
+                if (!pathName) {
+                    updateFilenameLabel();
+                    return;
+                }
+                const createdName = fileNameOf(pathName);
+                const wanted = ensureMdClient(newName);
+                if (wanted !== UNTITLED_NAME && createdName !== wanted) {
+                    await renamePath(pathName, newName);
+                } else {
+                    updateFilenameLabel();
+                }
+                return;
+            }
+            if (newName === fileNameOf(currentFilePath)) {
+                updateFilenameLabel();
+                return;
+            }
+            await renamePath(currentFilePath, newName);
+        }
+
+        function ensureMdClient(name) {
+            return /\.[^./]+$/.test(name) ? name : `${name}.md`;
+        }
+
+        document.getElementById('filename-editor').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                e.target.blur();
+            }
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                delete e.target.dataset.renamePath;
+                e.target.classList.add('hidden');
+                document.getElementById('filename-display').classList.remove('hidden');
+                updateFilenameLabel();
+            }
+        });
+        document.getElementById('filename-editor').addEventListener('blur', finishInlineRename);
+
+        async function postFileOp(url, payload) {
+            const res = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const data = await res.json().catch(() => ({}));
+            if (res.status === 409) {
+                const detail = data.detail || {};
+                const choice = await askConflict(detail.existing || 'that name', detail.suggested || '');
+                if (!choice) return null;
+                return postFileOp(url, { ...payload, conflict: choice });
+            }
+            if (!res.ok) {
+                const message = typeof data.detail === 'string' ? data.detail : 'Request failed';
+                alert(message);
+                return null;
+            }
+            return data;
+        }
+
+        function askConflict(existing, suggested) {
+            return new Promise((resolve) => {
+                pendingConflict = resolve;
+                document.getElementById('conflict-message').textContent =
+                    `"${existing}" already exists. Replace it, keep both as "${suggested}", or cancel?`;
+                document.getElementById('conflict-keep-btn').textContent = suggested ? `Keep as ${suggested}` : 'Keep both';
+                const modal = document.getElementById('conflict-modal');
+                modal.classList.remove('hidden');
+                modal.classList.add('flex');
+            });
+        }
+
+        function resolveConflict(choice) {
+            const modal = document.getElementById('conflict-modal');
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+            const resolve = pendingConflict;
+            pendingConflict = null;
+            if (resolve) resolve(choice === 'cancel' ? null : choice);
+        }
+
+        async function renamePath(path, newName) {
+            const result = await postFileOp('/api/file/rename', {
+                vault: currentVault(),
+                path,
+                new_name: newName
+            });
+            if (!result) return;
+            if (currentFilePath === path) currentFilePath = result.filename;
+            await loadFiles();
+            updateFilenameLabel();
+        }
+
+        function openFolderModal(action, path) {
+            hideContextMenu();
+            folderModal = { action, path, destination: folderOf(path) };
+            document.getElementById('folder-modal-title').textContent = action === 'copy' ? 'Copy file' : 'Move file';
+            document.getElementById('folder-modal-subtitle').textContent = fileNameOf(path);
+            const list = document.getElementById('folder-modal-list');
+            list.innerHTML = knownFolders.map(folder => {
+                const label = folder || '(vault root)';
+                const checked = folder === folderModal.destination ? 'checked' : '';
+                return `<label class="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-700 cursor-pointer">
+                    <input type="radio" name="dest-folder" value="${escapeAttr(folder)}" ${checked}>
+                    <span class="font-mono text-xs text-gray-200">${escapeHtml(label)}</span>
+                </label>`;
+            }).join('');
+            list.querySelectorAll('input[name="dest-folder"]').forEach(input => {
+                input.addEventListener('change', () => { folderModal.destination = input.value; });
+            });
+            document.getElementById('folder-modal-confirm').textContent = action === 'copy' ? 'Copy' : 'Move';
+            const modal = document.getElementById('folder-modal');
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        }
+
+        function closeFolderModal() {
+            const modal = document.getElementById('folder-modal');
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+            folderModal = null;
+        }
+
+        async function confirmFolderModal() {
+            if (!folderModal) return;
+            const { action, path, destination } = folderModal;
+            closeFolderModal();
+            const result = await postFileOp(action === 'copy' ? '/api/file/copy' : '/api/file/move', {
+                vault: currentVault(),
+                path,
+                destination
+            });
+            if (!result) return;
+            if (action === 'move' && currentFilePath === path) currentFilePath = result.filename;
+            if (action === 'copy') await openFile(result.filename);
+            await loadFiles();
+            updateFilenameLabel();
+        }
+
+        async function deletePath(path) {
+            hideContextMenu();
+            if (!confirm(`Delete ${fileNameOf(path)}?`)) return;
+            const res = await fetch(`/api/file?vault=${encodeURIComponent(currentVault())}&path=${encodeURIComponent(path)}`, {
+                method: 'DELETE'
+            });
+            if (!res.ok) {
+                alert('Could not delete file');
+                return;
+            }
+            if (currentFilePath === path) {
+                currentFilePath = '';
+                editor.value = '';
+                lastSavedContent = '';
+                updateFilenameLabel();
+                setSaveStatus('Unsaved', 'text-amber-400');
+            }
+            await loadFiles();
+        }
+
+        function hideContextMenu() {
+            if (!contextMenu) return;
+            contextMenu.classList.add('hidden');
+            contextMenu.innerHTML = '';
+        }
+
+        function showContextMenu(x, y, type, path) {
+            const items = type === 'folder' || type === 'tree'
+                ? [{ label: 'New file', run: () => createNewFile(type === 'folder' ? path : '') }]
+                : [
+                    { label: 'Rename', run: () => beginRename(path) },
+                    { label: 'Copy to…', run: () => openFolderModal('copy', path) },
+                    { label: 'Move to…', run: () => openFolderModal('move', path) },
+                    { label: 'Delete', run: () => deletePath(path) },
+                ];
+            contextMenu.innerHTML = items.map((item, idx) =>
+                `<button data-idx="${idx}" class="block w-full text-left px-3 py-1.5 text-xs text-gray-200 hover:bg-indigo-600 hover:text-white">${escapeHtml(item.label)}</button>`
+            ).join('');
+            contextMenu.querySelectorAll('button').forEach((btn, idx) => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    hideContextMenu();
+                    items[idx].run();
+                });
+            });
+            contextMenu.classList.remove('hidden');
+            const maxX = window.innerWidth - contextMenu.offsetWidth - 8;
+            const maxY = window.innerHeight - contextMenu.offsetHeight - 8;
+            contextMenu.style.left = `${Math.max(8, Math.min(x, maxX))}px`;
+            contextMenu.style.top = `${Math.max(8, Math.min(y, maxY))}px`;
+        }
+
+        treeContainer.addEventListener('click', (e) => {
+            const row = e.target.closest('.tree-row');
+            if (!row) return;
+            if (row.dataset.type === 'folder') toggleFolder(row);
+            if (row.dataset.type === 'file') openFile(row.dataset.path);
+        });
+
+        treeContainer.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            const row = e.target.closest('.tree-row');
+            if (row) showContextMenu(e.clientX, e.clientY, row.dataset.type, row.dataset.path);
+            else showContextMenu(e.clientX, e.clientY, 'tree', '');
+        });
+
+        treeContainer.addEventListener('touchstart', (e) => {
+            const row = e.target.closest('.tree-row');
+            if (!row) return;
+            const touch = e.changedTouches[0];
+            longPressTimer = setTimeout(() => {
+                showContextMenu(touch.clientX, touch.clientY, row.dataset.type, row.dataset.path);
+            }, 500);
+        });
+        treeContainer.addEventListener('touchend', () => clearTimeout(longPressTimer));
+        treeContainer.addEventListener('touchmove', () => clearTimeout(longPressTimer));
+
+        let dragPath = null;
+        treeContainer.addEventListener('dragstart', (e) => {
+            const row = e.target.closest('.tree-row');
+            if (!row || row.dataset.type !== 'file') return;
+            dragPath = row.dataset.path;
+            e.dataTransfer.setData('text/plain', dragPath);
+            e.dataTransfer.effectAllowed = 'move';
+        });
+        treeContainer.addEventListener('dragover', (e) => {
+            const row = e.target.closest('.tree-row');
+            if (!dragPath) return;
+            if (row && row.dataset.type === 'folder') {
+                e.preventDefault();
+                row.classList.add('bg-indigo-900/40');
+            } else if (!row) {
+                e.preventDefault();
+            }
+        });
+        treeContainer.addEventListener('dragleave', (e) => {
+            const row = e.target.closest('.tree-row');
+            if (row) row.classList.remove('bg-indigo-900/40');
+        });
+        treeContainer.addEventListener('drop', async (e) => {
+            e.preventDefault();
+            const row = e.target.closest('.tree-row');
+            document.querySelectorAll('.tree-row').forEach(r => r.classList.remove('bg-indigo-900/40'));
+            const destination = row && row.dataset.type === 'folder' ? row.dataset.path : '';
+            const path = dragPath;
+            dragPath = null;
+            if (!path) return;
+            if (folderOf(path) === destination) return;
+            const result = await postFileOp('/api/file/move', {
+                vault: currentVault(),
+                path,
+                destination
+            });
+            if (!result) return;
+            if (currentFilePath === path) currentFilePath = result.filename;
+            await loadFiles();
+            updateFilenameLabel();
+        });
+
+        document.addEventListener('click', (e) => {
+            if (!contextMenu.contains(e.target)) hideContextMenu();
+        });
+        window.addEventListener('resize', updateFilenameLabel);
+
+        function looksLikeTodoChat(prompt) {
+            if (/^\/todo\b/i.test(prompt)) return true;
+            return /(^|\s)(\/todo\b|guppy\b|to-?dos?\b)/i.test(prompt);
+        }
+
+        function inputForChannel(channel) {
+            return channel === 'todos' ? guppyInput : chatInput;
+        }
+
+        function sendButtonForChannel(channel) {
+            return document.getElementById(channel === 'todos' ? 'send-guppy-btn' : 'send-chat-btn');
+        }
+
+        function resetComposer(el) {
+            if (!el) return;
+            el.value = '';
+            el.style.height = 'auto';
+            el.style.overflowY = 'hidden';
+        }
+
+        function chatLogEl(channel) {
+            return document.getElementById(channel === 'todos' ? 'guppy-messages' : 'chat-messages');
+        }
+
+        function appendChatBubble(channel, role, text, { loadingId = null, error = false } = {}) {
+            const log = chatLogEl(channel);
+            const isUser = role === 'user';
+            const wrap = document.createElement('div');
+            if (loadingId) wrap.id = loadingId;
+            wrap.className = error
+                ? 'bg-red-900/40 p-3 rounded-lg max-w-xl text-sm border border-red-700'
+                : (isUser
+                    ? 'bg-indigo-900/50 border border-indigo-700/60 p-3 rounded-lg max-w-xl ml-auto text-sm'
+                    : 'bg-gray-700/60 p-3 rounded-lg max-w-xl text-sm border border-gray-600');
+            const name = isUser ? 'You' : (channel === 'todos' ? 'Guppy' : 'Gemini');
+            const nameClass = isUser ? 'text-indigo-300' : (channel === 'todos' ? 'text-emerald-400' : 'text-indigo-400');
+            wrap.innerHTML = `<span class="block text-xs font-semibold ${nameClass} mb-1">${name}</span><div class="whitespace-pre-wrap ${error ? 'text-red-200' : (isUser ? '' : 'text-gray-200')}">${escapeHtml(text)}</div>`;
+            log.appendChild(wrap);
+            log.scrollTop = log.scrollHeight;
+            return wrap;
+        }
+
+        function renderChatHistory(channel, history) {
+            const log = chatLogEl(channel);
+            const welcome = channel === 'todos'
+                ? 'Tell me to add, finish, reopen, delete, or reshuffle tasks. You can also ask what\'s on the list and how I\'d prioritize it.'
+                : 'Welcome to WriterSystem. Send a message below to chat with Gemini or process text.';
+            const welcomeName = channel === 'todos' ? 'Guppy' : 'System';
+            const welcomeColor = channel === 'todos' ? 'text-emerald-400' : 'text-indigo-400';
+            log.innerHTML = `<div class="bg-gray-700/60 p-3 rounded-lg max-w-xl text-sm border border-gray-600">
+                <span class="block text-xs font-semibold ${welcomeColor} mb-1">${welcomeName}</span>
+                ${escapeHtml(welcome)}
+            </div>`;
+            (history || []).forEach(msg => {
+                if (msg.role === 'user' || msg.role === 'model') {
+                    appendChatBubble(channel, msg.role === 'model' ? 'model' : 'user', msg.text || '');
+                }
+            });
+        }
+
+        async function loadChatHistory(channel) {
+            try {
+                const res = await fetch(`/api/chat/history?vault=${encodeURIComponent(currentVault())}&channel=${encodeURIComponent(channel)}`);
+                if (!res.ok) return;
+                const data = await res.json();
+                renderChatHistory(channel, data.history || []);
+            } catch (e) {
+                console.error('Failed to load chat history', e);
+            }
+        }
+
+        async function submitChat(forcedChannel) {
+            const requested = forcedChannel === 'todos' ? 'todos' : 'writing';
+            const composer = inputForChannel(requested);
+            const prompt = (composer && composer.value.trim()) || '';
+            if (!prompt) return;
+            const vault = currentVault();
+            const todoIntent = requested === 'todos' || looksLikeTodoChat(prompt);
+            const channel = todoIntent ? 'todos' : 'writing';
+            const sendBtn = sendButtonForChannel(channel);
+
+            resetComposer(composer);
+
+            if (channel === 'todos') {
+                if (activeTab !== 'todos') switchTab('todos', { skipHistory: true, skipLoad: true });
+                setGuppyOpen(true);
+            } else if (activeTab !== 'conversation') {
+                switchTab('conversation', { skipHistory: true });
+            }
+
+            appendChatBubble(channel, 'user', prompt);
+            const loadingId = 'loading-' + Date.now();
+            appendChatBubble(channel, 'model', 'Thinking...', { loadingId });
+            const loadingEl = document.getElementById(loadingId);
+            if (loadingEl) loadingEl.classList.add('animate-pulse');
+            if (sendBtn) sendBtn.disabled = true;
+
+            try {
+                const res = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        prompt,
+                        vault,
+                        tab: channel === 'todos' ? 'todos' : 'conversation',
+                        channel,
+                        file_path: currentFilePath,
+                        file_content: editor.value
+                    })
+                });
+                if (!res.ok) throw new Error(`Server returned ${res.status}`);
+                const data = await res.json();
+                const reply = data.response || data.message || JSON.stringify(data);
+                if (loadingEl) {
+                    loadingEl.classList.remove('animate-pulse');
+                    loadingEl.querySelector('div.whitespace-pre-wrap').textContent = reply;
+                }
+                if (data.channel === 'todos' && Array.isArray(data.items)) {
+                    todoItems = data.items.map(normalizeTodoItem);
+                    todoVault = vault;
+                    renderTodos();
+                    setTodoSaveStatus('Saved');
+                }
+                if (data.updated_content) {
+                    editor.value = data.updated_content;
+                    lastSavedContent = currentFilePath ? data.updated_content : null;
+                    setSaveStatus('Unsaved', 'text-amber-400');
+                    await autosaveNow();
+                }
+            } catch (e) {
+                if (loadingEl) {
+                    loadingEl.className = 'bg-red-900/40 p-3 rounded-lg max-w-xl text-sm border border-red-700';
+                    loadingEl.innerHTML = `<span class="block text-xs font-semibold text-red-400 mb-1">System Error</span><div class="text-red-200">Failed to send message: ${escapeHtml(e.message)}</div>`;
+                }
+            } finally {
+                if (sendBtn) sendBtn.disabled = false;
+                const log = chatLogEl(channel);
+                log.scrollTop = log.scrollHeight;
+            }
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function escapeAttr(text) {
+            return String(text)
+                .replace(/&/g, '&amp;')
+                .replace(/"/g, '&quot;')
+                .replace(/</g, '&lt;');
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            loadVaults();
+            updateFilenameLabel();
+            applyGuppyPane();
+            applyFilesPane();
+            syncTodoFilterButtons();
+        });
+    </script>
+</body>
+</html>

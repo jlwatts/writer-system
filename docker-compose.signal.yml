@@ -1,0 +1,13 @@
+# Optional Signal gateway. Not part of the default stack.
+# Start later with: docker compose -f docker-compose.signal.yml up -d
+services:
+  signal-cli:
+    image: bbernhard/signal-cli-rest-api:latest
+    container_name: signal_gateway
+    environment:
+      - MODE=native
+    volumes:
+      - ./signal-data:/home/pb/.local/share/signal-cli
+    ports:
+      - "8080:8080"
+    restart: unless-stopped

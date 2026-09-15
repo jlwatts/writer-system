@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-#!/usr/bin/env bash
 set -e
 
 SYSTEM_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -12,7 +11,7 @@ echo "=== Writer System Setup ==="
 if ! command -v docker &> /dev/null; then
     echo "Docker is not installed. Installing Docker..."
     curl -fsSL https://get.docker.com | sh
-    sudo usermod -aG docker $USER
+    sudo usermod -aG docker "$USER"
     echo "Docker installed. Please re-run setup after logging back in."
     exit 1
 fi
@@ -22,10 +21,8 @@ if ! command -v curl &> /dev/null; then
     sudo apt update && sudo apt install -y curl
 fi
 
-# 2. Setup Directory Structure
+# 2. Setup Directory Structure (default stack only)
 mkdir -p "$SYSTEM_DIR/vault"
-mkdir -p "$SYSTEM_DIR/signal-data"
-mkdir -p "$SYSTEM_DIR/ollama-data"
 
 # 3. Interactive API Key & Configuration Prompting
 touch "$ENV_FILE"
@@ -35,9 +32,9 @@ get_or_prompt_env() {
     local prompt_text="$2"
     local default_val="$3"
     local existing_val
-    
+
     existing_val=$(grep -E "^${key}=" "$ENV_FILE" | cut -d '=' -f2- | tr -d '"' | tr -d "'")
-    
+
     if [ -z "$existing_val" ]; then
         if [ -n "$default_val" ]; then
             read -p "$prompt_text [$default_val]: " input_val
@@ -57,24 +54,64 @@ get_or_prompt_env "GITHUB_USER" "Enter GitHub Username/Org for downloads" "your-
 get_or_prompt_env "GITHUB_REPO" "Enter GitHub Repository Name" "writer-system"
 get_or_prompt_env "GITHUB_BRANCH" "Enter Branch Name" "main"
 get_or_prompt_env "GEMINI_API_KEY" "Enter Gemini API Key" ""
-get_or_prompt_env "SIGNAL_PHONE_NUMBER" "Enter Signal Phone Number (+1234567890)" ""
+get_or_prompt_env "GEMINI_MODEL" "Enter Gemini Model" "gemini-3.6-flash"
 get_or_prompt_env "DAILY_BUDGET_LIMIT" "Enter Daily API Budget Limit (USD)" "0.50"
 
 # Load variables for downloads
+# shellcheck disable=SC1090
 source "$ENV_FILE"
 
 RAW_BASE_URL="https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_REPO}/${GITHUB_BRANCH}"
 
-# 4. Download docker-compose.yml from GitHub
+download_or_fallback() {
+    local filename="$1"
+    local dest="$SYSTEM_DIR/$filename"
+    echo "Fetching $filename..."
+    if curl -sSL -f "${RAW_BASE_URL}/${filename}" -o "$dest"; then
+        echo " ✓ Downloaded $filename from GitHub"
+        return 0
+    fi
+    return 1
+}
+
+# 4. Download compose files from GitHub
 echo ""
 echo "--- Downloading docker-compose.yml from GitHub ---"
-if curl -sSL -f "${RAW_BASE_URL}/docker-compose.yml" -o "$SYSTEM_DIR/docker-compose.yml"; then
-    echo "✓ Downloaded docker-compose.yml from GitHub"
-else
+if ! download_or_fallback "docker-compose.yml"; then
     echo "⚠️ Could not download docker-compose.yml from GitHub. Generating local default..."
     cat <<'EOF' > "$SYSTEM_DIR/docker-compose.yml"
-version: '3.8'
+services:
+  writer-app:
+    build: .
+    container_name: writer_app
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    volumes:
+      - ./app:/app/app
+      - ./vault:/app/vaults
+    restart: unless-stopped
 
+  syncthing:
+    image: syncthing/syncthing:latest
+    container_name: vault_sync
+    volumes:
+      - ./vault:/var/syncthing/vaults
+    ports:
+      - "8384:8384"
+      - "22000:22000/tcp"
+      - "22000:22000/udp"
+    restart: unless-stopped
+EOF
+fi
+
+echo ""
+echo "--- Optional Signal compose (not started by writer-start) ---"
+if ! download_or_fallback "docker-compose.signal.yml"; then
+    cat <<'EOF' > "$SYSTEM_DIR/docker-compose.signal.yml"
+# Optional Signal gateway. Not part of the default stack.
+# Start later with: docker compose -f docker-compose.signal.yml up -d
 services:
   signal-cli:
     image: bbernhard/signal-cli-rest-api:latest
@@ -86,40 +123,8 @@ services:
     ports:
       - "8080:8080"
     restart: unless-stopped
-
-  ollama:
-    image: ollama/ollama:latest
-    container_name: local_llm
-    volumes:
-      - ./ollama-data:/root/.ollama
-    ports:
-      - "11434:11434"
-    restart: unless-stopped
-
-  syncthing:
-    image: syncthing/syncthing:latest
-    container_name: vault_sync
-    volumes:
-      - ./vault:/var/syncthing/vault
-    ports:
-      - "8384:8384"
-      - "22000:22000/tcp"
-      - "22000:22000/udp"
-    restart: unless-stopped
-
-  writer-bot:
-    build: .
-    container_name: writer_bot
-    depends_on:
-      - signal-cli
-      - ollama
-    env_file:
-      - .env
-    volumes:
-      - ./vault:/app/vault
-      - /var/run/docker.sock:/var/run/docker.sock
-    restart: unless-stopped
 EOF
+    echo " ✓ Wrote local docker-compose.signal.yml"
 fi
 
 # 5. Download Operational Control Scripts from GitHub
@@ -137,23 +142,16 @@ for script in "${SCRIPTS[@]}"; do
     fi
 done
 
-# 6. Create placeholding Dockerfile and main.py if missing
+# 6. Create placeholder Dockerfile if missing
 if [ ! -f "$SYSTEM_DIR/Dockerfile" ]; then
     cat <<'EOF' > "$SYSTEM_DIR/Dockerfile"
 FROM python:3.11-slim
 WORKDIR /app
-RUN pip install --no-cache-dir requests docker
-COPY main.py .
-CMD ["python", "-u", "main.py"]
-EOF
-fi
-
-if [ ! -f "$SYSTEM_DIR/main.py" ]; then
-    cat <<'EOF' > "$SYSTEM_DIR/main.py"
-import os, time
-print("Writer Bot Service Running...")
-while True:
-    time.sleep(10)
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY . .
+EXPOSE 8000
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
 EOF
 fi
 
@@ -171,8 +169,12 @@ done
 
 echo ""
 echo "=== Setup Complete ==="
+echo "Default stack: writer-app (port 8000) + Syncthing (port 8384)"
 echo "Management commands available system-wide:"
 echo "  writer-start   : Launch the Docker stack"
 echo "  writer-stop    : Stop all containers"
 echo "  writer-restart : Restart the stack"
 echo "  writer-status  : View logs and container states"
+echo ""
+echo "Optional Signal gateway (not started by default):"
+echo "  docker compose -f docker-compose.signal.yml up -d"
