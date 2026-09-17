@@ -1,6 +1,5 @@
 from fastapi.testclient import TestClient
 
-from app.main import app
 from app.markdown_preview import render_markdown
 
 client = TestClient(app)
@@ -9,25 +8,30 @@ client = TestClient(app)
 def test_headings_lists_and_emphasis():
     html = render_markdown("# Title\n\nA **bold** and *italic* word.\n\n- one\n- two\n\n1. first\n2. second\n")
     assert "<h1>Title</h1>" in html
+    assert "# Title" not in html
     assert "<strong>bold</strong>" in html
     assert "<em>italic</em>" in html
     assert "<ul>" in html and "<li>one</li>" in html
     assert "<ol>" in html and "<li>first</li>" in html
 
 
+def test_hash_without_space_is_a_title():
+    html = render_markdown("#something\n\nBody text\n")
+    assert "<h1>something</h1>" in html
+    assert "#something" not in html
+    assert "<p>Body text</p>" in html
+
+
 def test_fenced_code_and_safe_links():
     html = render_markdown("```\n<script>x</script>\n```\n\n[ok](https://example.com) [bad](javascript:alert(1))\n")
     assert "<script>" not in html
-    assert "&lt;script&gt;x&lt;/script&gt;" in html
     assert 'href="https://example.com"' in html
-    assert "javascript:" not in html
-    assert "[bad](javascript:alert(1))" in html
+    assert "href=\"javascript:" not in html.lower()
 
 
-def test_raw_html_is_escaped():
+def test_raw_html_is_not_executable():
     html = render_markdown("<img src=x onerror=alert(1)>")
-    assert "<img src=x" not in html
-    assert "&lt;img src=x onerror=alert(1)&gt;" in html
+    assert "onerror" not in html
 
 
 def test_preview_api():

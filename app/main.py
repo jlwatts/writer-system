@@ -153,18 +153,47 @@ def list_vault_names() -> List[str]:
     return vaults
 
 
-def list_vault_files(vault: str) -> List[str]:
+def list_vault_tree(vault: str) -> Dict[str, Any]:
     root = vault_root(vault)
-    if not root.exists():
-        return []
+    root.mkdir(parents=True, exist_ok=True)
     files: List[str] = []
+    folders = [""]
+    mtimes: Dict[str, float] = {}
+    try:
+        mtimes[""] = root.stat().st_mtime
+    except OSError:
+        mtimes[""] = 0.0
     for path in root.rglob("*"):
+        rel = path.relative_to(root)
+        if any(part.startswith(".") for part in rel.parts):
+            continue
+        key = rel.as_posix()
+        try:
+            mtime = path.stat().st_mtime
+        except OSError:
+            continue
+        if path.is_dir():
+            folders.append(key)
+            mtimes[key] = max(mtimes.get(key, 0.0), mtime)
+            continue
         if not path.is_file():
             continue
-        if any(part.startswith(".") for part in path.relative_to(root).parts):
-            continue
-        files.append(path.relative_to(root).as_posix())
-    return sorted(files)
+        files.append(key)
+        mtimes[key] = mtime
+        parent_parts = list(rel.parts[:-1])
+        acc: List[str] = []
+        for part in parent_parts:
+            acc.append(part)
+            folder = "/".join(acc)
+            mtimes[folder] = max(mtimes.get(folder, 0.0), mtime)
+        mtimes[""] = max(mtimes.get("", 0.0), mtime)
+    files.sort()
+    folders = sorted(set(folders), key=lambda value: value.lower())
+    return {"files": files, "folders": folders, "mtimes": mtimes}
+
+
+def list_vault_files(vault: str) -> List[str]:
+    return list_vault_tree(vault)["files"]
 
 
 def rel_posix(vault: str, path: Path) -> str:
@@ -185,17 +214,7 @@ def folder_path(vault: str, folder: str) -> Path:
 
 
 def list_vault_folders(vault: str) -> List[str]:
-    root = vault_root(vault)
-    root.mkdir(parents=True, exist_ok=True)
-    folders = [""]
-    for path in root.rglob("*"):
-        if not path.is_dir():
-            continue
-        rel = path.relative_to(root)
-        if any(part.startswith(".") for part in rel.parts):
-            continue
-        folders.append(rel.as_posix())
-    return sorted(set(folders), key=lambda value: value.lower())
+    return list_vault_tree(vault)["folders"]
 
 
 def sanitize_filename(name: str) -> str:
@@ -514,8 +533,13 @@ def get_vaults():
 
 @app.get("/api/files")
 def get_files(vault: str = "default"):
-    vault_root(vault).mkdir(parents=True, exist_ok=True)
-    return {"vault": sanitize_vault_name(vault), "files": list_vault_files(vault), "folders": list_vault_folders(vault)}
+    listing = list_vault_tree(vault)
+    return {
+        "vault": sanitize_vault_name(vault),
+        "files": listing["files"],
+        "folders": listing["folders"],
+        "mtimes": listing["mtimes"],
+    }
 
 
 @app.get("/api/file")
@@ -612,15 +636,24 @@ def create_file(req: FileCreateRequest):
 @app.post("/api/file/rename")
 def rename_file(req: FileRenameRequest):
     source = resolve_in_vault(req.vault, req.path)
-    if not source.is_file():
-        raise HTTPException(status_code=404, detail="File not found")
-    new_name = ensure_markdown_name(req.new_name)
+    if not source.exists():
+        raise HTTPException(status_code=404, detail="Path not found")
+    if source.is_dir():
+        new_name = sanitize_filename(req.new_name)
+        kind = "folder"
+    else:
+        if not source.is_file():
+            raise HTTPException(status_code=404, detail="File not found")
+        new_name = ensure_markdown_name(req.new_name)
+        kind = "file"
     dest = resolve_conflict_destination(source.parent / new_name, req.conflict, source)
     dest = resolve_in_vault(req.vault, rel_posix(req.vault, dest))
-    source.rename(dest)
+    if dest.resolve() != source.resolve():
+        source.rename(dest)
     return {
         "status": "renamed",
         "vault": sanitize_vault_name(req.vault),
+        "kind": kind,
         "filename": rel_posix(req.vault, dest),
     }
 
@@ -667,12 +700,20 @@ def delete_file(vault: str = "default", path: Optional[str] = None):
     if not path:
         raise HTTPException(status_code=400, detail="Missing file path")
     target = resolve_in_vault(vault, path)
-    if not target.is_file():
-        raise HTTPException(status_code=404, detail="File not found")
-    target.unlink()
+    if target.resolve() == vault_root(vault).resolve():
+        raise HTTPException(status_code=400, detail="Cannot delete vault root")
+    if target.is_dir():
+        shutil.rmtree(target)
+        kind = "folder"
+    elif target.is_file():
+        target.unlink()
+        kind = "file"
+    else:
+        raise HTTPException(status_code=404, detail="Path not found")
     return {
         "status": "deleted",
         "vault": sanitize_vault_name(vault),
+        "kind": kind,
         "filename": path,
     }
 

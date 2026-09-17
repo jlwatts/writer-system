@@ -10,7 +10,7 @@
     function readingTimeMinutes(text, wpm) {
         const words = wordCount(text);
         if (words <= 0) return 0;
-        const pace = wpm > 0 ? wpm : 200;
+        const pace = wpm > 0 ? wpm : 260;
         return Math.max(1, Math.ceil(words / pace));
     }
 

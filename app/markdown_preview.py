@@ -3,8 +3,45 @@ from __future__ import annotations
 import html
 import re
 
+try:
+    import markdown as markdown_lib
+except ImportError:
+    markdown_lib = None
+
+HASH_HEADING_RE = re.compile(r"(?m)^( {0,3}#{1,6})([^#\s])")
+JS_HREF_RE = re.compile(r'(?i)\s+href=(["\'])javascript:[^"\']*\1')
+ON_ATTR_RE = re.compile(r'(?i)\s+on[a-z]+\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+)')
+SCRIPT_RE = re.compile(r"(?is)<script[^>]*>.*?</script>")
+
+
+def prepare_source(source: str | None) -> str:
+    text = (source or "").replace("\r\n", "\n").replace("\r", "\n").replace("\x00", "")
+    if text.startswith("\ufeff"):
+        text = text[1:]
+    return HASH_HEADING_RE.sub(r"\1 \2", text)
+
+
+def _sanitize(html_out: str) -> str:
+    html_out = SCRIPT_RE.sub("", html_out)
+    html_out = ON_ATTR_RE.sub("", html_out)
+    html_out = JS_HREF_RE.sub("", html_out)
+    return html_out
+
+
+def render_markdown(source: str | None) -> str:
+    text = prepare_source(source)
+    if markdown_lib is not None:
+        html_out = markdown_lib.markdown(
+            text,
+            extensions=["fenced_code", "sane_lists"],
+            output_format="html",
+        )
+        return _sanitize(html_out)
+    return _fallback_render(text)
+
+
 FENCE_RE = re.compile(r"```([^\n]*)\n(.*?)```", re.DOTALL)
-HEADING_RE = re.compile(r"^(#{1,6})\s+(.+)$")
+HEADING_RE = re.compile(r"^ {0,3}(#{1,6})(?!#)[ \t]*(.+?)(?:[ \t]+#+)?[ \t]*$")
 UL_RE = re.compile(r"^(\s*)[-*+]\s+(.+)$")
 OL_RE = re.compile(r"^(\s*)\d+\.\s+(.+)$")
 HR_RE = re.compile(r"^\s*(?:-{3,}|\*{3,}|_{3,})\s*$")
@@ -26,7 +63,7 @@ def _stash(slots: list[str], fragment: str) -> str:
     return f"\x00S{len(slots) - 1}\x00"
 
 
-def apply_inline(text: str) -> str:
+def _apply_inline(text: str) -> str:
     slots: list[str] = []
     working = text or ""
 
@@ -62,8 +99,7 @@ def apply_inline(text: str) -> str:
     return re.sub(r"\x00S(\d+)\x00", restore, working)
 
 
-def render_markdown(source: str | None) -> str:
-    text = (source or "").replace("\r\n", "\n").replace("\r", "\n").replace("\x00", "")
+def _fallback_render(text: str) -> str:
     fences: list[str] = []
 
     def fence_repl(match: re.Match[str]) -> str:
@@ -98,8 +134,9 @@ def render_markdown(source: str | None) -> str:
             continue
         heading = HEADING_RE.match(line)
         if heading:
-            level = len(heading.group(1))
-            parts.append(f"<h{level}>{apply_inline(heading.group(2).strip())}</h{level}>")
+            body = _apply_inline(heading.group(2) or "")
+            if body:
+                parts.append(f"<h{len(heading.group(1))}>{body}</h{len(heading.group(1))}>")
             i += 1
             continue
         if BLOCKQUOTE_RE.match(line):
@@ -110,7 +147,7 @@ def render_markdown(source: str | None) -> str:
                     break
                 quoted.append(qm.group(1))
                 i += 1
-            inner = apply_inline(" ".join(quoted).strip()) if quoted else ""
+            inner = _apply_inline(" ".join(quoted).strip()) if quoted else ""
             parts.append(f"<blockquote>{inner}</blockquote>")
             continue
         if UL_RE.match(line):
@@ -119,7 +156,7 @@ def render_markdown(source: str | None) -> str:
                 um = UL_RE.match(lines[i])
                 if not um:
                     break
-                items.append(f"<li>{apply_inline(um.group(2).strip())}</li>")
+                items.append(f"<li>{_apply_inline(um.group(2).strip())}</li>")
                 i += 1
             parts.append(f"<ul>{''.join(items)}</ul>")
             continue
@@ -129,7 +166,7 @@ def render_markdown(source: str | None) -> str:
                 om = OL_RE.match(lines[i])
                 if not om:
                     break
-                items.append(f"<li>{apply_inline(om.group(2).strip())}</li>")
+                items.append(f"<li>{_apply_inline(om.group(2).strip())}</li>")
                 i += 1
             parts.append(f"<ol>{''.join(items)}</ol>")
             continue
@@ -149,5 +186,5 @@ def render_markdown(source: str | None) -> str:
             para.append(nxt.strip())
             i += 1
         if para:
-            parts.append(f"<p>{apply_inline(' '.join(para))}</p>")
+            parts.append(f"<p>{_apply_inline(' '.join(para))}</p>")
     return "\n".join(parts)

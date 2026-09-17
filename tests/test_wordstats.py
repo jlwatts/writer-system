@@ -12,3 +12,7 @@ def test_reading_time_rounds_up():
     assert reading_time_minutes("word") == 1
     assert reading_time_minutes(" ".join(["w"] * 200), wpm=200) == 1
     assert reading_time_minutes(" ".join(["w"] * 201), wpm=200) == 2
+
+
+def test_reading_time_uses_fiction_pace():
+    assert reading_time_minutes(" ".join(["w"] * 4128)) == 16

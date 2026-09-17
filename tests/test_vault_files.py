@@ -1,5 +1,6 @@
 from pathlib import Path
 from unittest.mock import MagicMock, patch
+import os
 
 import pytest
 from fastapi.testclient import TestClient
@@ -47,6 +48,10 @@ def test_save_list_and_read_file(vaults_dir: Path):
     assert files.json()["files"] == ["chapter-1.md", "notes/todo-scratch.md"]
     assert "" in files.json()["folders"]
     assert "notes" in files.json()["folders"]
+    mtimes = files.json()["mtimes"]
+    assert mtimes["chapter-1.md"] > 0
+    assert mtimes["notes/todo-scratch.md"] > 0
+    assert mtimes["notes"] >= mtimes["notes/todo-scratch.md"]
 
     opened = client.get("/api/file?vault=books&path=chapter-1.md")
     assert opened.status_code == 200
@@ -62,6 +67,24 @@ def test_save_list_and_read_file(vaults_dir: Path):
     loaded = client.get("/api/file?vault=books&filename=TODO.md")
     assert loaded.status_code == 200
     assert loaded.json()["content"] == "- [ ] Write more"
+
+
+def test_folder_mtime_follows_newest_file(vaults_dir: Path):
+    books = vaults_dir / "books"
+    (books / "zeta").mkdir(parents=True)
+    (books / "alpha").mkdir(parents=True)
+    older = books / "zeta" / "old.md"
+    newer = books / "alpha" / "new.md"
+    older.write_text("old", encoding="utf-8")
+    newer.write_text("new", encoding="utf-8")
+    base = older.stat().st_mtime
+    os.utime(older, (base - 120, base - 120))
+    os.utime(newer, (base + 120, base + 120))
+
+    files = client.get("/api/files?vault=books")
+    mtimes = files.json()["mtimes"]
+    assert mtimes["alpha"] >= mtimes["zeta"]
+    assert mtimes["alpha/new.md"] > mtimes["zeta/old.md"]
 
 
 def test_rejects_path_traversal(vaults_dir: Path):
@@ -164,3 +187,27 @@ def test_create_rename_move_copy_delete(vaults_dir: Path):
     deleted = client.delete("/api/file?vault=books&path=scene.md")
     assert deleted.status_code == 200
     assert not (vaults_dir / "books" / "scene.md").exists()
+
+
+def test_rename_and_delete_folder(vaults_dir: Path):
+    (vaults_dir / "books" / "notes").mkdir(parents=True)
+    (vaults_dir / "books" / "notes" / "scene.md").write_text("draft", encoding="utf-8")
+
+    renamed = client.post("/api/file/rename", json={
+        "vault": "books",
+        "path": "notes",
+        "new_name": "chapters",
+    })
+    assert renamed.status_code == 200
+    assert renamed.json()["kind"] == "folder"
+    assert renamed.json()["filename"] == "chapters"
+    assert (vaults_dir / "books" / "chapters" / "scene.md").read_text(encoding="utf-8") == "draft"
+    assert not (vaults_dir / "books" / "notes").exists()
+
+    removed = client.delete("/api/file?vault=books&path=chapters")
+    assert removed.status_code == 200
+    assert removed.json()["kind"] == "folder"
+    assert not (vaults_dir / "books" / "chapters").exists()
+
+    root = client.delete("/api/file?vault=books&path=.")
+    assert root.status_code == 400

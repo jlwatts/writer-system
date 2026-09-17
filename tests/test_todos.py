@@ -185,4 +185,4 @@ def test_guppy_delete_downgrades_instead(mock_gemini, tmp_path, monkeypatch):
     assert guppy.json()["actions"] == [{"op": "downgrade", "text": "demote me", "to": 3}]
     assert (vault / "TODO.md").read_text(encoding="utf-8") == (
         "- [ ] keep me\n- [ ] tail\n- [ ] demote me\n"
-    ))
+    )

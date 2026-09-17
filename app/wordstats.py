@@ -2,7 +2,7 @@ import math
 import re
 
 WORD_RE = re.compile(r"\S+")
-DEFAULT_WPM = 200
+DEFAULT_WPM = 260
 
 
 def word_count(text: str | None) -> int:

@@ -4,8 +4,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, interactive-widget=resizes-visual">
     <title>Writer System</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="/static/writer.css">
+    <script src="https://cdn.tailwindcss.com?plugins=typography"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
+    <link rel="stylesheet" href="/static/writer.css?v=chat-dock">
+    <script src="/static/editor-tools.js?v=wpm260"></script>
 </head>
 <body class="bg-gray-900 text-gray-100 h-full w-full font-sans antialiased relative">
 
@@ -39,6 +42,11 @@
         
         <!-- 1. EDITOR TAB WITH LEFT SIDEBAR -->
         <div id="tab-editor" class="tab-content flex-1 flex flex-row min-h-0 relative overflow-hidden">
+            <aside id="conversation-dock" class="conversation-dock hidden"></aside>
+            <button id="conversation-expand-btn" type="button" onclick="toggleChatPane()" class="edge-rail edge-rail-chat hidden" title="Open conversation" aria-label="Open conversation">
+                <svg class="edge-rail-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m8.25 4.5 7.5 7.5-7.5 7.5"/></svg>
+                <span>Chat</span>
+            </button>
             
             <!-- LEFT COLLAPSIBLE FILE TREE SIDEBAR -->
             <aside id="file-sidebar" class="w-64 bg-gray-800/95 border-r border-gray-700 flex flex-col shrink-0 transition-all duration-300 ease-in-out z-20">
@@ -47,15 +55,12 @@
                         <svg class="w-4 h-4 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
                         Files
                     </span>
-                    <div class="flex items-center space-x-1">
-                        <button onclick="createNewFile('')" class="text-gray-400 hover:text-indigo-400 p-1 text-xs rounded hover:bg-gray-700" title="New file">
-                            +
+                    <div class="flex items-center gap-1">
+                        <button type="button" id="files-menu-btn" class="tree-menu-btn" title="File list actions" aria-label="File list actions">
+                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.75h.01M12 12h.01M12 17.25h.01"/></svg>
                         </button>
-                        <button onclick="loadFiles()" class="text-gray-400 hover:text-indigo-400 p-1 text-xs rounded hover:bg-gray-700" title="Refresh Files">
-                            🔄
-                        </button>
-                        <button onclick="toggleSidebar()" class="text-gray-400 hover:text-gray-200 p-1 text-xs rounded hover:bg-gray-700" title="Collapse Sidebar">
-                            ◀
+                        <button type="button" onclick="toggleSidebar()" class="icon-btn" title="Collapse files" aria-label="Collapse files">
+                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.75 19.5 8.25 12l7.5-7.5"/></svg>
                         </button>
                     </div>
                 </div>
@@ -64,23 +69,55 @@
                 </div>
             </aside>
 
-            <button id="sidebar-expand-btn" type="button" onclick="toggleSidebar()" class="edge-rail edge-rail-files hidden" title="Open files">
+            <button id="sidebar-expand-btn" type="button" onclick="toggleSidebar()" class="edge-rail edge-rail-files hidden" title="Open files" aria-label="Open files">
+                <svg class="edge-rail-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m8.25 4.5 7.5 7.5-7.5 7.5"/></svg>
                 <span>Files</span>
             </button>
 
             <!-- MAIN EDITOR CONTAINER -->
             <div class="flex-1 flex flex-col p-4 min-h-0 bg-gray-900">
-                <div class="flex items-center gap-2 mb-2 shrink-0 min-w-0">
-                    <button type="button" id="filename-display" onclick="startInlineRename()" class="min-w-0 flex-1 flex items-center gap-1.5 text-left group">
+                <div class="flex items-center gap-2 mb-2 shrink-0 min-w-0 flex-wrap">
+                    <button type="button" id="filename-display" title="Rename file" class="min-w-0 flex-1 flex items-center gap-1.5 text-left group">
                         <span id="filename-truncated" class="min-w-0 block text-base sm:text-lg font-semibold text-gray-200 whitespace-nowrap overflow-hidden" title="untitled.md">untitled.md</span>
                         <svg class="w-4 h-4 shrink-0 text-gray-500 group-hover:text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536M4 20h4.586a1 1 0 00.707-.293l9.414-9.414a2 2 0 000-2.828l-3.172-3.172a2 2 0 00-2.828 0L4.293 14.707A1 1 0 004 15.414V20z"/>
                         </svg>
                     </button>
                     <input type="text" id="filename-editor" class="hidden flex-1 bg-gray-800 text-base sm:text-lg font-semibold text-gray-200 rounded-md border border-indigo-500 px-2 py-0.5 min-w-0" />
+                    <button type="button" onclick="createNewFile('')" class="toolbar-btn" title="New file">+ New</button>
+                    <button type="button" id="find-toggle-btn" onclick="toggleFindBar()" class="toolbar-btn">Find</button>
+                    <button type="button" id="preview-toggle" class="preview-switch" role="switch" aria-checked="false" onclick="toggleMarkdownPreview()">
+                        <span>Preview</span>
+                        <span class="preview-switch-control" aria-hidden="true">
+                            <span class="preview-switch-track"></span>
+                            <span class="preview-switch-thumb"></span>
+                        </span>
+                    </button>
                     <span id="save-status" class="text-[11px] sm:text-xs text-gray-500 shrink-0">Unsaved</span>
                 </div>
-                <textarea id="editor-textarea" class="w-full flex-1 bg-gray-800 text-gray-100 p-3.5 rounded-lg border border-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono text-sm resize-none" placeholder="Create a new file or select one from the sidebar..."></textarea>
+                <div id="find-bar" class="hidden shrink-0 mb-2 p-2 rounded-lg border border-gray-700 bg-gray-800 flex flex-col gap-2">
+                    <div class="flex items-center gap-2 flex-wrap">
+                        <input id="find-query" type="text" placeholder="Find" class="flex-1 min-w-[8rem] bg-gray-900 border border-gray-700 rounded-md px-2 py-1 text-sm text-gray-100">
+                        <input id="find-replace" type="text" placeholder="Replace" class="flex-1 min-w-[8rem] bg-gray-900 border border-gray-700 rounded-md px-2 py-1 text-sm text-gray-100">
+                        <span id="find-status" class="text-[11px] text-gray-400 shrink-0">No matches</span>
+                    </div>
+                    <div class="flex items-center gap-2 flex-wrap text-[11px] text-gray-400">
+                        <label class="flex items-center gap-1"><input id="find-regex" type="checkbox" onchange="refreshFindMatches()"> Regex</label>
+                        <label class="flex items-center gap-1"><input id="find-word" type="checkbox" onchange="refreshFindMatches()"> Whole word</label>
+                        <label class="flex items-center gap-1"><input id="find-case" type="checkbox" onchange="refreshFindMatches()"> Case</label>
+                        <button type="button" onclick="findStep(-1)" class="px-2 py-1 rounded bg-gray-700 text-gray-200">Prev</button>
+                        <button type="button" onclick="findStep(1)" class="px-2 py-1 rounded bg-gray-700 text-gray-200">Next</button>
+                        <button type="button" onclick="replaceCurrentMatch()" class="px-2 py-1 rounded bg-gray-700 text-gray-200">Replace</button>
+                        <button type="button" onclick="replaceAllMatches()" class="px-2 py-1 rounded bg-indigo-700 text-white">Replace all</button>
+                        <button type="button" onclick="toggleFindBar(false)" class="px-2 py-1 rounded bg-gray-700 text-gray-200">Close</button>
+                    </div>
+                </div>
+                <textarea id="editor-textarea" class="w-full flex-1 min-h-0 bg-gray-800 text-gray-100 p-3.5 rounded-lg border border-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono text-sm resize-none" placeholder="Create a new file or select one from the sidebar..."></textarea>
+                <div id="markdown-preview" tabindex="0" class="hidden w-full flex-1 min-h-0 overflow-y-auto overflow-x-hidden bg-gray-800 text-gray-100 p-4 rounded-lg border border-gray-700 prose prose-invert max-w-none"></div>
+                <div id="editor-status" class="shrink-0 mt-2 flex items-center justify-between text-[11px] sm:text-xs text-gray-500">
+                    <span id="editor-word-count">0 words</span>
+                    <span id="editor-read-time">0 min read</span>
+                </div>
             </div>
         </div>
 
@@ -89,15 +126,15 @@
             <aside id="guppy-pane" class="w-72 bg-gray-800/95 border-r border-gray-700 flex flex-col shrink-0 transition-all duration-300 ease-in-out z-20 min-h-0">
                 <div class="p-3 border-b border-gray-700 flex justify-between items-center shrink-0">
                     <span class="text-xs font-semibold uppercase tracking-wider text-emerald-400">Guppy</span>
-                    <button type="button" onclick="toggleGuppyPane()" class="text-gray-400 hover:text-gray-200 p-1 text-xs rounded hover:bg-gray-700" title="Collapse Guppy">
-                        ◀
+                    <button type="button" onclick="toggleGuppyPane()" class="icon-btn" title="Collapse Guppy" aria-label="Collapse Guppy">
+                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.75 19.5 8.25 12l7.5-7.5"/></svg>
                     </button>
                 </div>
                 <div id="guppy-body" class="flex-1 min-h-0 flex flex-col">
                     <div id="guppy-messages" class="flex-1 overflow-y-auto p-3 space-y-3 text-sm">
                         <div class="bg-gray-700/60 p-3 rounded-lg max-w-xl text-sm border border-gray-600">
                             <span class="block text-xs font-semibold text-emerald-400 mb-1">Guppy</span>
-                            Tell me to add, finish, reopen, delete, or reshuffle tasks. You can also ask what's on the list and how I'd prioritize it.
+                            Tell me to add, finish, reopen, demote, or reshuffle tasks. You can also ask what's on the list and how I'd prioritize it.
                         </div>
                     </div>
                     <div class="shrink-0 p-2.5 border-t border-gray-700 flex items-end gap-2">
@@ -109,7 +146,8 @@
                 </div>
             </aside>
 
-            <button id="guppy-expand-btn" type="button" onclick="toggleGuppyPane()" class="edge-rail edge-rail-guppy hidden" title="Open Guppy">
+            <button id="guppy-expand-btn" type="button" onclick="toggleGuppyPane()" class="edge-rail edge-rail-guppy hidden" title="Open Guppy" aria-label="Open Guppy">
+                <svg class="edge-rail-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m8.25 4.5 7.5 7.5-7.5 7.5"/></svg>
                 <span>Guppy</span>
             </button>
 
@@ -123,15 +161,15 @@
                             <button type="button" class="todo-filter-btn" data-filter="all" onclick="setTodoFilter('all')">All</button>
                         </div>
                         <span id="todo-save-status" class="text-[11px] sm:text-xs text-gray-500">Saved</span>
-                        <button onclick="loadTodos({force: true})" class="text-xs sm:text-sm text-indigo-400 hover:text-indigo-300 hover:underline">
-                            Reload
+                        <button type="button" onclick="loadTodos({force: true})" class="icon-btn text-indigo-400 hover:text-indigo-300" title="Reload todos" aria-label="Reload todos">
+                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182"/></svg>
                         </button>
                     </div>
                 </div>
                 <div class="flex-1 min-h-0 min-w-0 bg-gray-800 rounded-lg border border-gray-700 flex flex-col">
                     <ul id="todo-list" class="flex-1 overflow-y-auto divide-y divide-gray-700"></ul>
-                    <form id="todo-add-form" class="shrink-0 p-3 border-t border-gray-700 flex items-center gap-2 flex-wrap" onsubmit="event.preventDefault(); addTodo();">
-                        <input id="todo-new-input" type="text" placeholder="Add a to-do..." class="flex-1 min-w-[10rem] bg-gray-900 border border-gray-700 rounded-md px-3 py-2 text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    <form id="todo-add-form" class="shrink-0 p-3 border-t border-gray-700 flex items-end gap-2 flex-wrap" onsubmit="event.preventDefault(); addTodo();">
+                        <textarea id="todo-new-input" rows="1" placeholder="Add a to-do..." class="auto-expand flex-1 min-w-[10rem] bg-gray-900 border border-gray-700 rounded-md px-3 py-2 text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"></textarea>
                         <button type="button" id="todo-new-due-btn" onclick="openDuePopover(event, 'new')" class="todo-due-label upcoming">No date</button>
                         <button type="submit" class="px-3 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs sm:text-sm font-medium rounded-md shrink-0">Add</button>
                     </form>
@@ -141,31 +179,38 @@
 
         <!-- 3. CONVERSATION TAB -->
         <div id="tab-conversation" class="tab-content hidden flex-1 p-4 sm:p-6 bg-gray-900 flex flex-col min-h-0">
-            <div class="max-w-4xl mx-auto w-full flex-1 flex flex-col min-h-0">
-                <h2 class="text-lg sm:text-xl font-bold text-gray-200 mb-4 shrink-0">Writing conversation</h2>
-                <div id="chat-messages" class="flex-1 bg-gray-800 rounded-lg border border-gray-700 p-4 overflow-y-auto space-y-4 min-h-0">
-                    <div class="bg-gray-700/60 p-3 rounded-lg max-w-xl text-sm border border-gray-600">
-                        <span class="block text-xs font-semibold text-indigo-400 mb-1">System</span>
-                        Welcome to WriterSystem. Send a message below to chat with Gemini or process text.
+            <div id="conversation-host" class="max-w-4xl mx-auto w-full flex-1 flex flex-col min-h-0">
+                <div id="conversation-pane" class="conversation-pane">
+                    <div class="conversation-pane-header">
+                        <h2 class="text-lg sm:text-xl font-bold text-gray-200">Writing conversation</h2>
+                        <button type="button" class="icon-btn chat-collapse-btn" onclick="toggleChatPane()" title="Collapse conversation" aria-label="Collapse conversation">
+                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.75 19.5 8.25 12l7.5-7.5"/></svg>
+                        </button>
                     </div>
-                </div>
-                <div class="shrink-0 pt-3 flex items-end gap-2">
-                    <div class="flex-1 bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 focus-within:ring-2 focus-within:ring-indigo-500 focus-within:border-transparent">
-                        <textarea
-                            id="chat-input"
-                            rows="1"
-                            placeholder="Ask AI or instruct edits (Press Shift+Enter for new line)..."
-                            class="auto-expand w-full bg-gray-900 text-gray-100 placeholder-gray-500 focus:outline-none text-xs sm:text-sm leading-relaxed block"
-                        ></textarea>
+                    <div id="chat-messages" class="flex-1 bg-gray-800 rounded-lg border border-gray-700 p-4 overflow-y-auto space-y-4 min-h-0">
+                        <div class="bg-gray-700/60 p-3 rounded-lg max-w-xl text-sm border border-gray-600">
+                            <span class="block text-xs font-semibold text-indigo-400 mb-1">System</span>
+                            Welcome to WriterSystem. Send a message below to chat with Gemini or process text.
+                        </div>
                     </div>
-                    <button
-                        id="send-chat-btn"
-                        type="button"
-                        onclick="submitChat('writing')"
-                        class="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs sm:text-sm font-medium rounded-lg shadow shrink-0"
-                    >
-                        Send
-                    </button>
+                    <div class="shrink-0 pt-3 flex items-end gap-2">
+                        <div class="flex-1 bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 focus-within:ring-2 focus-within:ring-indigo-500 focus-within:border-transparent">
+                            <textarea
+                                id="chat-input"
+                                rows="1"
+                                placeholder="Ask AI or instruct edits (Press Shift+Enter for new line)..."
+                                class="auto-expand w-full bg-gray-900 text-gray-100 placeholder-gray-500 focus:outline-none text-xs sm:text-sm leading-relaxed block"
+                            ></textarea>
+                        </div>
+                        <button
+                            id="send-chat-btn"
+                            type="button"
+                            onclick="submitChat('writing')"
+                            class="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs sm:text-sm font-medium rounded-lg shadow shrink-0"
+                        >
+                            Send
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -221,7 +266,10 @@
         let autosaveInFlight = false;
         let pendingAutosave = false;
         const UNTITLED_NAME = 'untitled.md';
+        let renameOpenedAt = 0;
         let knownFolders = [''];
+        let pathMtimes = {};
+        let treeSort = localStorage.getItem('writer-tree-sort') === 'updated' ? 'updated' : 'name';
         let expandedFolders = new Set();
         let pendingConflict = null;
         let folderModal = null;
@@ -230,9 +278,16 @@
         let todoSaveTimer = null;
         let todoDragIndex = null;
         let guppyOpen = localStorage.getItem('writer-guppy-open') !== 'false';
+        let chatOpen = localStorage.getItem('writer-chat-open') !== 'false';
         let newTodoDue = null;
         let duePopoverTarget = null;
         let todoFilter = localStorage.getItem('writer-todo-filter') || 'open';
+        let previewOn = false;
+        let findIndex = 0;
+        let findSpansCache = [];
+        let wordCountRaf = null;
+        let longPressTimer = null;
+        let suppressClick = false;
 
         const chatInput = document.getElementById('chat-input');
         const guppyInput = document.getElementById('guppy-input');
@@ -286,16 +341,71 @@
             label.textContent = middleEllipsis(base, maxChars);
         }
 
+        function lastFileKey(vault) {
+            return `writer-last-file:${vault || currentVault()}`;
+        }
+
+        function rememberedFile(vault) {
+            return localStorage.getItem(lastFileKey(vault || currentVault())) || '';
+        }
+
+        function rememberOpenFile(path) {
+            const vault = currentVault();
+            localStorage.setItem('writer-last-vault', vault);
+            if (path) localStorage.setItem(lastFileKey(vault), path);
+            else localStorage.removeItem(lastFileKey(vault));
+        }
+
+        function expandAncestors(path) {
+            const parts = (path || '').split('/');
+            parts.pop();
+            let acc = '';
+            parts.forEach((part) => {
+                acc = acc ? `${acc}/${part}` : part;
+                expandedFolders.add(acc);
+            });
+        }
+
         function setCurrentFile(path, content, { saved = true } = {}) {
             currentFilePath = path || '';
             editor.value = content ?? '';
             lastSavedContent = saved ? editor.value : null;
+            if (currentFilePath) {
+                expandAncestors(currentFilePath);
+                rememberOpenFile(currentFilePath);
+            }
             updateFilenameLabel();
             highlightActiveFile();
             setSaveStatus(saved ? 'Saved' : 'Unsaved', saved ? 'text-gray-500' : 'text-amber-400');
+            updateEditorStats(true);
+            if (previewOn) renderMarkdownPreview();
+            if (!document.getElementById('find-bar').classList.contains('hidden')) refreshFindMatches();
+        }
+
+        async function restoreLastFile() {
+            const path = rememberedFile();
+            if (!path) return;
+            expandAncestors(path);
+            try {
+                const res = await fetch(`/api/file?vault=${encodeURIComponent(currentVault())}&path=${encodeURIComponent(path)}`);
+                if (!res.ok) {
+                    rememberOpenFile('');
+                    return;
+                }
+                const data = await res.json();
+                setCurrentFile(data.filename || path, data.content, { saved: true });
+            } catch (e) {
+                rememberOpenFile('');
+            }
         }
 
         function switchTab(tabName, options = {}) {
+            if (tabName === 'conversation' && isLandscapeChat()) {
+                setChatOpen(true);
+                if (!options.skipHistory) loadChatHistory('writing');
+                options = Object.assign({}, options, { skipHistory: true });
+                tabName = 'editor';
+            }
             activeTab = tabName;
             document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
             document.querySelectorAll('.tab-btn').forEach(btn => {
@@ -336,6 +446,22 @@
             applyFilesPane();
         }
 
+        function bindExpandingComposer(el, onSubmit) {
+            if (!el) return;
+            el.addEventListener('input', function() {
+                this.style.height = 'auto';
+                const calculatedHeight = Math.min(this.scrollHeight, 120);
+                this.style.height = `${calculatedHeight}px`;
+                this.style.overflowY = this.scrollHeight > 120 ? 'auto' : 'hidden';
+            });
+            el.addEventListener('keydown', function(e) {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    onSubmit();
+                }
+            });
+        }
+
         function bindExpandingInput(el, submitChannel) {
             if (!el) return;
             el.addEventListener('input', function() {
@@ -353,6 +479,7 @@
         }
         bindExpandingInput(chatInput, 'writing');
         bindExpandingInput(guppyInput, 'todos');
+        bindExpandingComposer(document.getElementById('todo-new-input'), () => addTodo());
 
         function setGuppyOpen(open) {
             guppyOpen = open;
@@ -362,6 +489,52 @@
 
         function toggleGuppyPane() {
             setGuppyOpen(!guppyOpen);
+        }
+
+        const landscapeChatQuery = window.matchMedia('(orientation: landscape)');
+
+        function isLandscapeChat() {
+            return landscapeChatQuery.matches;
+        }
+
+        function setChatOpen(open) {
+            chatOpen = open;
+            localStorage.setItem('writer-chat-open', String(open));
+            applyChatPane();
+        }
+
+        function toggleChatPane() {
+            setChatOpen(!chatOpen);
+        }
+
+        function applyChatPane() {
+            const dock = document.getElementById('conversation-dock');
+            const rail = document.getElementById('conversation-expand-btn');
+            if (!dock || !rail) return;
+            document.body.classList.toggle('chat-landscape', isLandscapeChat());
+            if (!isLandscapeChat()) {
+                dock.classList.add('hidden');
+                rail.classList.add('hidden');
+                return;
+            }
+            if (chatOpen) {
+                dock.classList.remove('hidden');
+                rail.classList.add('hidden');
+            } else {
+                dock.classList.add('hidden');
+                rail.classList.remove('hidden');
+            }
+        }
+
+        function placeConversationPane() {
+            const pane = document.getElementById('conversation-pane');
+            const landscape = isLandscapeChat();
+            const slot = document.getElementById(landscape ? 'conversation-dock' : 'conversation-host');
+            if (pane && slot && pane.parentElement !== slot) slot.appendChild(pane);
+            applyChatPane();
+            if (landscape && activeTab === 'conversation') {
+                switchTab('editor', { skipHistory: true });
+            }
         }
 
         function applyGuppyPane() {
@@ -380,11 +553,20 @@
         editor.addEventListener('input', () => {
             setSaveStatus('Unsaved', 'text-amber-400');
             scheduleAutosave();
+            scheduleWordCount();
+            if (!document.getElementById('find-bar').classList.contains('hidden')) {
+                refreshFindMatches({ keepIndex: true });
+            }
         });
 
         function scheduleAutosave() {
             clearTimeout(saveTimer);
             saveTimer = setTimeout(autosaveNow, 700);
+        }
+
+        async function saveNow() {
+            clearTimeout(saveTimer);
+            await autosaveNow();
         }
 
         async function materializeUntitled(name) {
@@ -451,6 +633,7 @@
                     if (!res.ok) throw new Error('Save failed');
                     lastSavedContent = content;
                     setSaveStatus('Saved');
+                    updateReadingTime();
                 } while (pendingAutosave);
             } catch (e) {
                 setSaveStatus('Save failed', 'text-red-400');
@@ -467,26 +650,36 @@
                 const selector = document.getElementById('vault-select');
                 if (data.vaults && data.vaults.length > 0) {
                     selector.innerHTML = data.vaults.map(v => `<option value="${v}">${v}</option>`).join('');
+                    const lastVault = localStorage.getItem('writer-last-vault');
+                    if (lastVault && data.vaults.includes(lastVault)) selector.value = lastVault;
                 }
-                loadFiles();
+                const lastPath = rememberedFile();
+                if (lastPath) expandAncestors(lastPath);
+                await loadFiles();
+                await restoreLastFile();
             } catch (e) {
                 console.error('Failed to fetch vaults:', e);
             }
         }
 
         function onVaultChange() {
+            localStorage.setItem('writer-last-vault', currentVault());
             currentFilePath = '';
             lastSavedContent = '';
             editor.value = '';
             updateFilenameLabel();
             setSaveStatus('Unsaved', 'text-amber-400');
+            const lastPath = rememberedFile();
+            if (lastPath) expandAncestors(lastPath);
             flushTodoSave().then(() => {
-                if (activeTab === 'editor') loadFiles();
+                if (activeTab === 'editor') loadFiles().then(() => restoreLastFile());
+                else restoreLastFile();
                 if (activeTab === 'todos') {
                     loadTodos({ force: true });
                     loadChatHistory('todos');
                 }
                 if (activeTab === 'conversation') loadChatHistory('writing');
+                if (isLandscapeChat()) loadChatHistory('writing');
             });
         }
 
@@ -497,6 +690,7 @@
                 if (!res.ok) throw new Error('Failed to fetch file list');
                 const data = await res.json();
                 knownFolders = data.folders || [''];
+                pathMtimes = data.mtimes || {};
                 const filteredFiles = (data.files || []).filter(filePath => {
                     const baseName = filePath.split('/').pop().toLowerCase();
                     return baseName !== 'todo.md' && baseName !== 'todos.md';
@@ -541,19 +735,44 @@
             return root;
         }
 
+        function setTreeSort(mode) {
+            treeSort = mode === 'updated' ? 'updated' : 'name';
+            localStorage.setItem('writer-tree-sort', treeSort);
+            loadFiles();
+        }
+
+        function sortTreeEntries(entries, currentPath) {
+            return entries.sort((a, b) => {
+                const aDir = a[1] !== null;
+                const bDir = b[1] !== null;
+                if (aDir !== bDir) return aDir ? -1 : 1;
+                if (treeSort === 'updated') {
+                    const aPath = currentPath ? `${currentPath}/${a[0]}` : a[0];
+                    const bPath = currentPath ? `${currentPath}/${b[0]}` : b[0];
+                    const delta = (pathMtimes[bPath] || 0) - (pathMtimes[aPath] || 0);
+                    if (delta !== 0) return delta;
+                }
+                return a[0].localeCompare(b[0], undefined, { numeric: true, sensitivity: 'base' });
+            });
+        }
+
         function renderTreeHTML(treeNode, currentPath = '') {
+            const menuBtn = `<button type="button" class="tree-menu-btn" title="Actions" aria-label="Actions">
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.75h.01M12 12h.01M12 17.25h.01"/></svg>
+            </button>`;
             let html = '<div class="space-y-1">';
-            for (const [key, value] of Object.entries(treeNode)) {
+            for (const [key, value] of sortTreeEntries(Object.entries(treeNode), currentPath)) {
                 const fullPath = currentPath ? `${currentPath}/${key}` : key;
                 const isDirectory = value !== null;
                 if (isDirectory) {
                     const open = expandedFolders.has(fullPath);
                     html += `
                         <div class="tree-dir">
-                            <div class="tree-row flex items-center space-x-1.5 py-1 px-1.5 rounded hover:bg-gray-700/60 cursor-pointer text-gray-300 select-none"
+                            <div class="tree-row flex items-center gap-1.5 py-1 px-1.5 rounded hover:bg-gray-700/60 cursor-pointer text-gray-300 select-none"
                                  data-type="folder" data-path="${escapeAttr(fullPath)}" draggable="false">
                                 <span class="folder-icon text-indigo-400 text-xs">${open ? '📂' : '📁'}</span>
-                                <span class="font-medium text-xs truncate">${escapeHtml(key)}</span>
+                                <span class="tree-label font-medium text-xs truncate flex-1 min-w-0">${escapeHtml(key)}</span>
+                                ${menuBtn}
                             </div>
                             <div class="tree-children pl-2 ${open ? '' : 'hidden'}">
                                 ${renderTreeHTML(value, fullPath)}
@@ -562,10 +781,11 @@
                     `;
                 } else {
                     html += `
-                        <div class="tree-row flex items-center space-x-1.5 py-1 px-2 rounded hover:bg-gray-700 cursor-pointer text-gray-400 hover:text-gray-100 transition-colors"
+                        <div class="tree-row flex items-center gap-1.5 py-1 px-2 rounded hover:bg-gray-700 cursor-pointer text-gray-400 hover:text-gray-100 transition-colors"
                              data-type="file" data-path="${escapeAttr(fullPath)}" draggable="true">
                             <span class="text-xs text-gray-500">📄</span>
-                            <span class="font-mono text-xs truncate">${escapeHtml(key)}</span>
+                            <span class="tree-label font-mono text-xs truncate flex-1 min-w-0">${escapeHtml(key)}</span>
+                            ${menuBtn}
                         </div>
                     `;
                 }
@@ -692,10 +912,11 @@
                     ? `<span class="todo-due-label todo-resolved-label" title="Resolved date">${escapeHtml(resolvedLabel)}</span>`
                     : `<button type="button" class="todo-due-label ${status}" title="Set due date" onclick="openDuePopover(event, ${index})">${escapeHtml(dueLabel)}</button>`;
                 return `
-                <li class="todo-item flex items-center gap-2 px-3 py-2 flex-wrap ${status === 'overdue' ? 'overdue' : ''}" data-index="${index}">
-                    <span class="todo-handle text-gray-500 cursor-grab select-none text-xs px-0.5" draggable="true" title="Drag to reorder">⋮⋮</span>
-                    <input type="checkbox" ${item.done ? 'checked' : ''} onchange="toggleTodo(${index})" class="shrink-0">
-                    <input type="text" value="${escapeAttr(item.text)}" onchange="editTodo(${index}, this.value)" class="flex-1 min-w-[8rem] bg-transparent text-sm ${item.done ? 'text-gray-500 line-through' : 'text-gray-100'} focus:outline-none focus:ring-1 focus:ring-indigo-500 rounded px-1 py-1">
+                <li class="todo-item flex items-start gap-2 px-3 py-2 flex-wrap ${status === 'overdue' ? 'overdue' : ''}" data-index="${index}">
+                    <span class="todo-handle text-gray-500 cursor-grab select-none text-xs px-0.5 mt-1" draggable="true" title="Drag to reorder">⋮⋮</span>
+                    <span class="todo-num">${index + 1}</span>
+                    <input type="checkbox" ${item.done ? 'checked' : ''} onchange="toggleTodo(${index})" class="shrink-0 mt-1.5">
+                    <textarea rows="1" onchange="editTodo(${index}, this.value)" class="todo-text auto-expand flex-1 min-w-[8rem] bg-transparent text-sm ${item.done ? 'text-gray-500 line-through' : 'text-gray-100'} focus:outline-none focus:ring-1 focus:ring-indigo-500 rounded px-1 py-1">${escapeHtml(item.text)}</textarea>
                     ${dateControl}
                     <button type="button" onclick="moveTodo(${index}, -1)" class="text-gray-400 hover:text-white px-1 text-xs" title="Move up">↑</button>
                     <button type="button" onclick="moveTodo(${index}, 1)" class="text-gray-400 hover:text-white px-1 text-xs" title="Move down">↓</button>
@@ -703,6 +924,14 @@
                 </li>`;
             }).join('');
             bindTodoDrag();
+            list.querySelectorAll('textarea.todo-text').forEach((field) => {
+                field.style.height = 'auto';
+                field.style.height = `${Math.min(field.scrollHeight, 120)}px`;
+                field.addEventListener('input', function() {
+                    this.style.height = 'auto';
+                    this.style.height = `${Math.min(this.scrollHeight, 120)}px`;
+                });
+            });
         }
 
         function setTodoFilter(filter) {
@@ -751,12 +980,21 @@
             const text = input.value.trim();
             if (!text) return;
             todoItems.push({ text, done: false, due: newTodoDue, resolved: null });
+            const newIndex = todoItems.length - 1;
             input.value = '';
+            input.style.height = 'auto';
             newTodoDue = null;
             updateNewDueButton();
             renderTodos();
             scheduleTodoSave();
-            input.focus();
+            const row = document.querySelector(`#todo-list li[data-index="${newIndex}"]`);
+            const field = row && row.querySelector('textarea.todo-text');
+            if (field) {
+                field.focus();
+                row.scrollIntoView({ block: 'nearest' });
+            } else {
+                input.focus();
+            }
         }
 
         function isAllowedDue(iso) {
@@ -950,6 +1188,16 @@
             beginRename(currentFilePath || UNTITLED_NAME);
         }
 
+        function closeRenameEditor() {
+            const input = document.getElementById('filename-editor');
+            const display = document.getElementById('filename-display');
+            renameOpenedAt = 0;
+            delete input.dataset.renamePath;
+            input.classList.add('hidden');
+            display.classList.remove('hidden');
+            updateFilenameLabel();
+        }
+
         function beginRename(path) {
             hideContextMenu();
             const display = document.getElementById('filename-display');
@@ -958,15 +1206,29 @@
             input.classList.remove('hidden');
             input.value = fileNameOf(path);
             input.dataset.renamePath = path;
-            input.focus();
-            input.select();
+            renameOpenedAt = Date.now();
+            const focusInput = () => {
+                if (!renameOpenedAt || input.classList.contains('hidden')) return;
+                input.focus();
+                input.select();
+            };
+            focusInput();
+            requestAnimationFrame(focusInput);
+            setTimeout(focusInput, 50);
         }
 
         async function finishInlineRename() {
             const input = document.getElementById('filename-editor');
             const display = document.getElementById('filename-display');
+            if (input.classList.contains('hidden')) return;
+            if (Date.now() - renameOpenedAt < 250) {
+                input.focus();
+                return;
+            }
+            if (document.activeElement === input) return;
             const path = input.dataset.renamePath;
             const newName = input.value.trim();
+            renameOpenedAt = 0;
             delete input.dataset.renamePath;
             input.classList.add('hidden');
             display.classList.remove('hidden');
@@ -1000,20 +1262,49 @@
             return /\.[^./]+$/.test(name) ? name : `${name}.md`;
         }
 
+        const filenameDisplay = document.getElementById('filename-display');
+        filenameDisplay.addEventListener('click', (e) => {
+            e.preventDefault();
+            if (suppressClick) {
+                suppressClick = false;
+                return;
+            }
+            startInlineRename();
+        });
+        filenameDisplay.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            showContextMenu(e.clientX, e.clientY, 'editor', currentFilePath);
+        });
+        filenameDisplay.addEventListener('touchstart', (e) => {
+            const touch = e.changedTouches[0];
+            longPressTimer = setTimeout(() => {
+                suppressClick = true;
+                showContextMenu(touch.clientX, touch.clientY, 'editor', currentFilePath);
+            }, 500);
+        });
+        filenameDisplay.addEventListener('touchend', () => clearTimeout(longPressTimer));
+        filenameDisplay.addEventListener('touchmove', () => clearTimeout(longPressTimer));
+
+        document.getElementById('files-menu-btn').addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const rect = e.currentTarget.getBoundingClientRect();
+            showContextMenu(rect.right, rect.bottom, 'tree', '');
+        });
         document.getElementById('filename-editor').addEventListener('keydown', (e) => {
             if (e.key === 'Enter') {
                 e.preventDefault();
+                renameOpenedAt = 0;
                 e.target.blur();
             }
             if (e.key === 'Escape') {
                 e.preventDefault();
-                delete e.target.dataset.renamePath;
-                e.target.classList.add('hidden');
-                document.getElementById('filename-display').classList.remove('hidden');
-                updateFilenameLabel();
+                closeRenameEditor();
             }
         });
-        document.getElementById('filename-editor').addEventListener('blur', finishInlineRename);
+        document.getElementById('filename-editor').addEventListener('blur', () => {
+            setTimeout(finishInlineRename, 0);
+        });
 
         async function postFileOp(url, payload) {
             const res = await fetch(url, {
@@ -1063,10 +1354,22 @@
                 path,
                 new_name: newName
             });
-            if (!result) return;
-            if (currentFilePath === path) currentFilePath = result.filename;
+            if (!result) return null;
+            retargetOpenPath(path, result.filename, result.kind || 'file');
             await loadFiles();
             updateFilenameLabel();
+            return result;
+        }
+
+        function retargetOpenPath(oldPath, newPath, kind) {
+            if (!currentFilePath || !newPath) return;
+            if (kind === 'folder') {
+                if (currentFilePath === oldPath || currentFilePath.startsWith(`${oldPath}/`)) {
+                    currentFilePath = `${newPath}${currentFilePath.slice(oldPath.length)}`;
+                }
+                return;
+            }
+            if (currentFilePath === oldPath) currentFilePath = newPath;
         }
 
         function openFolderModal(action, path) {
@@ -1115,22 +1418,37 @@
             updateFilenameLabel();
         }
 
-        async function deletePath(path) {
+        async function deletePath(path, type = 'file') {
             hideContextMenu();
-            if (!confirm(`Delete ${fileNameOf(path)}?`)) return;
+            const label = type === 'folder'
+                ? `folder "${path}" and everything inside it`
+                : fileNameOf(path);
+            if (!confirm(`Delete ${label}?`)) return;
             const res = await fetch(`/api/file?vault=${encodeURIComponent(currentVault())}&path=${encodeURIComponent(path)}`, {
                 method: 'DELETE'
             });
             if (!res.ok) {
-                alert('Could not delete file');
+                alert(type === 'folder' ? 'Could not delete folder' : 'Could not delete file');
                 return;
             }
-            if (currentFilePath === path) {
+            if (type === 'folder') {
+                if (currentFilePath === path || currentFilePath.startsWith(`${path}/`)) {
+                    currentFilePath = '';
+                    editor.value = '';
+                    lastSavedContent = '';
+                    rememberOpenFile('');
+                    updateFilenameLabel();
+                    setSaveStatus('Unsaved', 'text-amber-400');
+                    updateEditorStats(true);
+                }
+            } else if (currentFilePath === path) {
                 currentFilePath = '';
                 editor.value = '';
                 lastSavedContent = '';
+                rememberOpenFile('');
                 updateFilenameLabel();
                 setSaveStatus('Unsaved', 'text-amber-400');
+                updateEditorStats(true);
             }
             await loadFiles();
         }
@@ -1141,23 +1459,116 @@
             contextMenu.innerHTML = '';
         }
 
+        function treeSortMenuItem() {
+            return {
+                label: 'Sort',
+                submenu: [
+                    { label: 'Alphabetically', run: () => setTreeSort('name'), current: treeSort === 'name' },
+                    { label: 'Last updated', run: () => setTreeSort('updated'), current: treeSort === 'updated' },
+                ],
+            };
+        }
+
+        function menuItemClass(item) {
+            const danger = item.danger ? ' text-red-300 hover:bg-red-800 hover:text-white' : ' text-gray-200 hover:bg-indigo-600 hover:text-white';
+            const current = item.current ? ' context-menu-current' : '';
+            return `context-menu-item${danger}${current}`;
+        }
+
+        function renderMenuItem(item, idx) {
+            if (item.separator) return '<div class="context-menu-sep"></div>';
+            if (item.submenu) {
+                const children = item.submenu.map((child, childIdx) => {
+                    const check = child.current ? '✓' : '';
+                    return `<button type="button" data-idx="${idx}" data-sub="${childIdx}" class="${menuItemClass(child)}">
+                        <span class="context-menu-label">${escapeHtml(child.label)}</span>
+                        <span class="context-menu-check" aria-hidden="true">${check}</span>
+                    </button>`;
+                }).join('');
+                return `<div class="context-menu-item-wrap" data-submenu-wrap>
+                    <button type="button" class="${menuItemClass(item)} has-submenu" data-submenu-btn aria-haspopup="true">
+                        <span class="context-menu-label">${escapeHtml(item.label)}</span>
+                        <span class="context-menu-caret" aria-hidden="true">›</span>
+                    </button>
+                    <div class="context-submenu" role="menu">${children}</div>
+                </div>`;
+            }
+            return `<button type="button" data-idx="${idx}" class="${menuItemClass(item)}">
+                <span class="context-menu-label">${escapeHtml(item.label)}</span>
+            </button>`;
+        }
+
+        function positionSubmenu(wrap) {
+            const sub = wrap.querySelector('.context-submenu');
+            if (!sub) return;
+            sub.style.left = '100%';
+            sub.style.right = 'auto';
+            sub.style.top = '0';
+            const rect = sub.getBoundingClientRect();
+            if (rect.right > window.innerWidth - 8) {
+                sub.style.left = 'auto';
+                sub.style.right = '100%';
+            }
+            if (rect.bottom > window.innerHeight - 8) {
+                const overflow = rect.bottom - (window.innerHeight - 8);
+                sub.style.top = `${-overflow}px`;
+            }
+        }
+
         function showContextMenu(x, y, type, path) {
-            const items = type === 'folder' || type === 'tree'
-                ? [{ label: 'New file', run: () => createNewFile(type === 'folder' ? path : '') }]
-                : [
-                    { label: 'Rename', run: () => beginRename(path) },
-                    { label: 'Copy to…', run: () => openFolderModal('copy', path) },
-                    { label: 'Move to…', run: () => openFolderModal('move', path) },
-                    { label: 'Delete', run: () => deletePath(path) },
-                ];
-            contextMenu.innerHTML = items.map((item, idx) =>
-                `<button data-idx="${idx}" class="block w-full text-left px-3 py-1.5 text-xs text-gray-200 hover:bg-indigo-600 hover:text-white">${escapeHtml(item.label)}</button>`
-            ).join('');
-            contextMenu.querySelectorAll('button').forEach((btn, idx) => {
+            const refreshItem = { label: 'Refresh files', run: () => loadFiles() };
+            const saveItem = { label: 'Save now', run: () => saveNow() };
+            const sortItem = treeSortMenuItem();
+            const items = type === 'tree'
+                ? [{ label: 'New file', run: () => createNewFile('') }, refreshItem, { separator: true }, sortItem]
+                : type === 'folder'
+                    ? [
+                        { label: 'New file', run: () => createNewFile(path) },
+                        refreshItem,
+                        { label: 'Rename', run: () => beginTreeRename(path, 'folder') },
+                        { label: 'Delete', run: () => deletePath(path, 'folder'), danger: true },
+                        { separator: true },
+                        sortItem,
+                    ]
+                    : type === 'editor'
+                    ? [
+                        saveItem,
+                        { label: 'Rename', run: () => startInlineRename() },
+                    ]
+                    : [
+                        saveItem,
+                        refreshItem,
+                        { label: 'Rename', run: () => beginTreeRename(path, 'file') },
+                        { label: 'Copy to…', run: () => openFolderModal('copy', path) },
+                        { label: 'Move to…', run: () => openFolderModal('move', path) },
+                        { label: 'Delete', run: () => deletePath(path, 'file'), danger: true },
+                        { separator: true },
+                        sortItem,
+                    ];
+            contextMenu.innerHTML = items.map((item, idx) => renderMenuItem(item, idx)).join('');
+            contextMenu.querySelectorAll('[data-idx]').forEach((btn) => {
                 btn.addEventListener('click', (e) => {
                     e.stopPropagation();
+                    const item = items[Number(btn.dataset.idx)];
+                    const subIdx = btn.dataset.sub;
+                    const target = subIdx == null ? item : item.submenu[Number(subIdx)];
+                    if (!target || !target.run) return;
                     hideContextMenu();
-                    items[idx].run();
+                    target.run();
+                });
+            });
+            contextMenu.querySelectorAll('[data-submenu-wrap]').forEach((wrap) => {
+                const open = () => {
+                    wrap.classList.add('open');
+                    positionSubmenu(wrap);
+                };
+                wrap.addEventListener('mouseenter', open);
+                wrap.addEventListener('mouseleave', () => wrap.classList.remove('open'));
+                wrap.querySelector('[data-submenu-btn]').addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const willOpen = !wrap.classList.contains('open');
+                    contextMenu.querySelectorAll('[data-submenu-wrap]').forEach((other) => other.classList.remove('open'));
+                    if (willOpen) open();
                 });
             });
             contextMenu.classList.remove('hidden');
@@ -1167,9 +1578,59 @@
             contextMenu.style.top = `${Math.max(8, Math.min(y, maxY))}px`;
         }
 
-        treeContainer.addEventListener('click', (e) => {
-            const row = e.target.closest('.tree-row');
+        function beginTreeRename(path, type) {
+            hideContextMenu();
+            const row = Array.from(document.querySelectorAll('.tree-row')).find(
+                (el) => el.dataset.path === path && el.dataset.type === type
+            );
             if (!row) return;
+            const label = row.querySelector('.tree-label');
+            if (!label) return;
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.className = 'tree-rename-input';
+            input.value = fileNameOf(path);
+            input.setAttribute('aria-label', 'Rename');
+            label.replaceWith(input);
+            const finish = async (commit) => {
+                if (input.dataset.done) return;
+                input.dataset.done = '1';
+                const next = input.value.trim();
+                if (!commit || !next || next === fileNameOf(path)) {
+                    await loadFiles();
+                    return;
+                }
+                await renamePath(path, next);
+            };
+            input.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    input.blur();
+                    finish(true);
+                }
+                if (e.key === 'Escape') {
+                    e.preventDefault();
+                    finish(false);
+                }
+            });
+            input.addEventListener('blur', () => finish(true));
+            input.focus();
+            input.select();
+        }
+
+        treeContainer.addEventListener('click', (e) => {
+            const menuBtn = e.target.closest('.tree-menu-btn');
+            if (menuBtn) {
+                e.preventDefault();
+                e.stopPropagation();
+                const row = menuBtn.closest('.tree-row');
+                if (!row) return;
+                const rect = menuBtn.getBoundingClientRect();
+                showContextMenu(rect.right, rect.bottom, row.dataset.type, row.dataset.path);
+                return;
+            }
+            const row = e.target.closest('.tree-row');
+            if (!row || e.target.closest('.tree-rename-input')) return;
             if (row.dataset.type === 'folder') toggleFolder(row);
             if (row.dataset.type === 'file') openFile(row.dataset.path);
         });
@@ -1182,6 +1643,7 @@
         });
 
         treeContainer.addEventListener('touchstart', (e) => {
+            if (e.target.closest('.tree-menu-btn') || e.target.closest('.tree-rename-input')) return;
             const row = e.target.closest('.tree-row');
             if (!row) return;
             const touch = e.changedTouches[0];
@@ -1284,7 +1746,7 @@
         function renderChatHistory(channel, history) {
             const log = chatLogEl(channel);
             const welcome = channel === 'todos'
-                ? 'Tell me to add, finish, reopen, delete, or reshuffle tasks. You can also ask what\'s on the list and how I\'d prioritize it.'
+                ? 'Tell me to add, finish, reopen, demote, or reshuffle tasks. You can also ask what\'s on the list and how I\'d prioritize it.'
                 : 'Welcome to WriterSystem. Send a message below to chat with Gemini or process text.';
             const welcomeName = channel === 'todos' ? 'Guppy' : 'System';
             const welcomeColor = channel === 'todos' ? 'text-emerald-400' : 'text-indigo-400';
@@ -1325,6 +1787,9 @@
             if (channel === 'todos') {
                 if (activeTab !== 'todos') switchTab('todos', { skipHistory: true, skipLoad: true });
                 setGuppyOpen(true);
+            } else if (isLandscapeChat()) {
+                if (activeTab !== 'editor') switchTab('editor', { skipHistory: true });
+                setChatOpen(true);
             } else if (activeTab !== 'conversation') {
                 switchTab('conversation', { skipHistory: true });
             }
@@ -1366,6 +1831,7 @@
                     editor.value = data.updated_content;
                     lastSavedContent = currentFilePath ? data.updated_content : null;
                     setSaveStatus('Unsaved', 'text-amber-400');
+                    updateEditorStats(true);
                     await autosaveNow();
                 }
             } catch (e) {
@@ -1377,6 +1843,160 @@
                 if (sendBtn) sendBtn.disabled = false;
                 const log = chatLogEl(channel);
                 log.scrollTop = log.scrollHeight;
+            }
+        }
+
+        function updateWordCount() {
+            const words = window.WriterTools ? WriterTools.wordCount(editor.value) : 0;
+            const el = document.getElementById('editor-word-count');
+            if (el) el.textContent = `${words} word${words === 1 ? '' : 's'}`;
+        }
+
+        function updateReadingTime() {
+            const mins = window.WriterTools ? WriterTools.readingTimeMinutes(editor.value, 260) : 0;
+            const el = document.getElementById('editor-read-time');
+            if (el) el.textContent = `${mins} min read`;
+        }
+
+        function updateEditorStats(includeReading) {
+            updateWordCount();
+            if (includeReading) updateReadingTime();
+        }
+
+        function scheduleWordCount() {
+            if (wordCountRaf) return;
+            wordCountRaf = requestAnimationFrame(() => {
+                wordCountRaf = null;
+                updateWordCount();
+            });
+        }
+
+        function findOptions() {
+            return {
+                regex: document.getElementById('find-regex').checked,
+                wholeWord: document.getElementById('find-word').checked,
+                caseSensitive: document.getElementById('find-case').checked,
+            };
+        }
+
+        function setFindStatus(text, isError) {
+            const el = document.getElementById('find-status');
+            if (!el) return;
+            el.textContent = text;
+            el.className = `text-[11px] shrink-0 ${isError ? 'text-red-400' : 'text-gray-400'}`;
+        }
+
+        function refreshFindMatches(opts) {
+            const query = document.getElementById('find-query').value;
+            const found = WriterTools.findSpans(editor.value, query, findOptions());
+            if (found.error) {
+                findSpansCache = [];
+                setFindStatus(found.error, true);
+                return;
+            }
+            findSpansCache = found.spans;
+            if (!findSpansCache.length) {
+                findIndex = 0;
+                setFindStatus(query ? 'No matches' : 'No matches');
+                return;
+            }
+            if (!(opts && opts.keepIndex)) findIndex = 0;
+            findIndex = Math.min(findIndex, findSpansCache.length - 1);
+            setFindStatus(`${findIndex + 1} / ${findSpansCache.length}`);
+            if (!(opts && opts.silent)) selectFindMatch();
+        }
+
+        function selectFindMatch() {
+            if (!findSpansCache.length) return;
+            const span = findSpansCache[findIndex];
+            editor.focus();
+            editor.setSelectionRange(span[0], span[1]);
+        }
+
+        function findStep(delta) {
+            refreshFindMatches({ silent: true, keepIndex: true });
+            if (!findSpansCache.length) return;
+            findIndex = (findIndex + delta + findSpansCache.length) % findSpansCache.length;
+            setFindStatus(`${findIndex + 1} / ${findSpansCache.length}`);
+            selectFindMatch();
+        }
+
+        function editorChangedManually() {
+            setSaveStatus('Unsaved', 'text-amber-400');
+            scheduleAutosave();
+            scheduleWordCount();
+        }
+
+        function replaceCurrentMatch() {
+            refreshFindMatches({ silent: true, keepIndex: true });
+            if (!findSpansCache.length) return;
+            const replacement = document.getElementById('find-replace').value;
+            editor.value = WriterTools.replaceSpans(editor.value, [findSpansCache[findIndex]], replacement);
+            editorChangedManually();
+            refreshFindMatches({ keepIndex: true });
+        }
+
+        function replaceAllMatches() {
+            const query = document.getElementById('find-query').value;
+            const replacement = document.getElementById('find-replace').value;
+            const result = WriterTools.replaceAll(editor.value, query, replacement, findOptions());
+            if (result.error) {
+                setFindStatus(result.error, true);
+                return;
+            }
+            editor.value = result.text;
+            editorChangedManually();
+            refreshFindMatches();
+            setFindStatus(`Replaced ${result.count}`);
+        }
+
+        function toggleFindBar(force) {
+            if (previewOn) toggleMarkdownPreview(false);
+            const bar = document.getElementById('find-bar');
+            const open = force === undefined ? bar.classList.contains('hidden') : !!force;
+            bar.classList.toggle('hidden', !open);
+            if (open) {
+                document.getElementById('find-query').focus();
+                document.getElementById('find-query').select();
+                refreshFindMatches();
+            }
+        }
+
+        function prepareMarkdown(source) {
+            return String(source || '').replace(/^( {0,3}#{1,6})([^#\s])/gm, '$1 $2');
+        }
+
+        function renderMarkdownPreview() {
+            const pane = document.getElementById('markdown-preview');
+            const source = prepareMarkdown(editor.value);
+            if (!source.trim()) {
+                pane.innerHTML = '<p class="text-gray-500 text-sm">Nothing to preview.</p>';
+                return;
+            }
+            try {
+                if (!window.marked || !window.DOMPurify) throw new Error('Markdown libraries failed to load');
+                const html = marked.parse(source);
+                pane.innerHTML = DOMPurify.sanitize(html) || '<p class="text-gray-500 text-sm">Nothing to preview.</p>';
+            } catch (e) {
+                pane.innerHTML = `<p class="text-red-400 text-sm">${escapeHtml(e.message)}</p>`;
+            }
+            pane.scrollTop = 0;
+        }
+
+        function toggleMarkdownPreview(force) {
+            const next = force === undefined ? !previewOn : !!force;
+            previewOn = next;
+            editor.classList.toggle('hidden', previewOn);
+            document.getElementById('markdown-preview').classList.toggle('hidden', !previewOn);
+            const toggle = document.getElementById('preview-toggle');
+            toggle.classList.toggle('is-on', previewOn);
+            toggle.setAttribute('aria-checked', previewOn ? 'true' : 'false');
+            if (previewOn) {
+                document.getElementById('find-bar').classList.add('hidden');
+                renderMarkdownPreview();
+                document.getElementById('markdown-preview').focus();
+            } else {
+                editor.focus();
             }
         }
 
@@ -1398,7 +2018,44 @@
             updateFilenameLabel();
             applyGuppyPane();
             applyFilesPane();
+            placeConversationPane();
+            if (isLandscapeChat()) loadChatHistory('writing');
+            landscapeChatQuery.addEventListener('change', placeConversationPane);
             syncTodoFilterButtons();
+            updateEditorStats(true);
+            document.addEventListener('keydown', (e) => {
+                if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+                    e.preventDefault();
+                    saveNow();
+                }
+            });
+            document.getElementById('find-query').addEventListener('input', () => refreshFindMatches());
+            document.getElementById('find-query').addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    findStep(e.shiftKey ? -1 : 1);
+                }
+                if (e.key === 'Escape') toggleFindBar(false);
+            });
+            document.getElementById('find-replace').addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    replaceCurrentMatch();
+                }
+                if (e.key === 'Escape') toggleFindBar(false);
+            });
+            document.addEventListener('keydown', (e) => {
+                const key = (e.key || '').toLowerCase();
+                if ((e.ctrlKey || e.metaKey) && key === 'f' && activeTab === 'editor') {
+                    e.preventDefault();
+                    toggleFindBar(true);
+                }
+                if ((e.ctrlKey || e.metaKey) && key === 'h' && activeTab === 'editor') {
+                    e.preventDefault();
+                    toggleFindBar(true);
+                    document.getElementById('find-replace').focus();
+                }
+            });
         });
     </script>
 </body>

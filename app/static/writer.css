@@ -3,7 +3,7 @@ html, body {
     height: 100%;
     width: 100%;
     overflow: hidden;
-    touch-action: manipulation;
+    touch-action: pan-y;
 }
 
 .edge-rail {
@@ -11,10 +11,12 @@ html, body {
     flex-shrink: 0;
     align-self: flex-start;
     display: flex;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
+    gap: 0.35rem;
     margin-top: 0.75rem;
-    padding: 0.85rem 0;
+    padding: 0.65rem 0 0.85rem;
     background: #1f2937;
     border: 1px solid #374151;
     border-left: none;
@@ -25,13 +27,159 @@ html, body {
 
 .edge-rail.hidden,
 #file-sidebar.hidden,
-#guppy-pane.hidden {
+#guppy-pane.hidden,
+#conversation-dock.hidden,
+#conversation-expand-btn.hidden,
+#find-bar.hidden,
+#markdown-preview.hidden,
+#editor-textarea.hidden {
     display: none !important;
 }
 
 .edge-rail:hover {
     background: #374151;
     color: #fff;
+}
+
+.edge-rail-icon {
+    width: 0.9rem;
+    height: 0.9rem;
+    flex-shrink: 0;
+}
+
+.toolbar-btn {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    line-height: 1;
+    padding: 0.4rem 0.85rem;
+    border-radius: 9999px;
+    background: #1f2937;
+    border: 1px solid #4b5563;
+    color: #e5e7eb;
+    cursor: pointer;
+}
+
+.toolbar-btn:hover {
+    color: #fff;
+    border-color: #818cf8;
+    background: #312e81;
+}
+
+.toolbar-btn-primary {
+    background: #4f46e5;
+    border-color: #6366f1;
+    color: #fff;
+}
+
+.toolbar-btn-primary:hover {
+    background: #6366f1;
+    border-color: #818cf8;
+    color: #fff;
+}
+
+@media (min-width: 640px) {
+    .toolbar-btn { font-size: 0.75rem; padding: 0.45rem 1rem; }
+}
+
+.preview-switch {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    font: inherit;
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: #d1d5db;
+    cursor: pointer;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.preview-switch-control {
+    position: relative;
+    display: block;
+    width: 51px;
+    height: 31px;
+    flex-shrink: 0;
+}
+
+.preview-switch-track {
+    position: absolute;
+    inset: 0;
+    border-radius: 31px;
+    background: #3a3a3c;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+    transition: background 0.22s ease;
+}
+
+.preview-switch-thumb {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 27px;
+    height: 27px;
+    border-radius: 50%;
+    background: #fff;
+    box-shadow: 0 3px 8px rgba(0, 0, 0, 0.28), 0 1px 1px rgba(0, 0, 0, 0.12);
+    transition: transform 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.preview-switch.is-on .preview-switch-track {
+    background: #34c759;
+}
+
+.preview-switch.is-on .preview-switch-thumb {
+    transform: translateX(20px);
+}
+
+.preview-switch:focus-visible .preview-switch-track {
+    outline: 2px solid #34c759;
+    outline-offset: 2px;
+}
+
+.preview-switch:active .preview-switch-thumb {
+    width: 30px;
+}
+
+.preview-switch.is-on:active .preview-switch-thumb {
+    transform: translateX(17px);
+}
+
+@media (min-width: 640px) {
+    .preview-switch { font-size: 0.75rem; }
+}
+
+.icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.3rem;
+    border-radius: 0.375rem;
+    color: #9ca3af;
+    background: transparent;
+    border: 0;
+    cursor: pointer;
+}
+
+.icon-btn svg {
+    width: 1rem;
+    height: 1rem;
+    display: block;
+}
+
+.icon-btn:hover {
+    color: #e5e7eb;
+    background: #374151;
 }
 
 .edge-rail span {
@@ -43,12 +191,92 @@ html, body {
     text-transform: uppercase;
 }
 
-.edge-rail-guppy span {
+.edge-rail-guppy span,
+.edge-rail-guppy .edge-rail-icon {
     color: #34d399;
 }
 
-.edge-rail-files span {
+.edge-rail-files span,
+.edge-rail-files .edge-rail-icon {
     color: #818cf8;
+}
+
+.edge-rail-chat span,
+.edge-rail-chat .edge-rail-icon {
+    color: #a5b4fc;
+}
+
+.conversation-pane {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+    min-width: 0;
+}
+
+.conversation-pane-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+    flex-shrink: 0;
+}
+
+.chat-collapse-btn {
+    display: none;
+}
+
+.conversation-dock {
+    width: 20rem;
+    max-width: 42vw;
+    background: rgba(31, 41, 55, 0.95);
+    border-right: 1px solid #374151;
+    flex-shrink: 0;
+    min-height: 0;
+    z-index: 20;
+    flex-direction: column;
+}
+
+body.chat-landscape #tab-btn-conversation {
+    display: none;
+}
+
+body.chat-landscape #tab-conversation {
+    display: none !important;
+}
+
+body.chat-landscape #conversation-dock:not(.hidden) {
+    display: flex;
+}
+
+body.chat-landscape .chat-collapse-btn {
+    display: inline-flex;
+}
+
+body.chat-landscape .conversation-pane-header {
+    padding: 0.75rem;
+    margin-bottom: 0;
+    border-bottom: 1px solid #374151;
+}
+
+body.chat-landscape .conversation-pane-header h2 {
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #a5b4fc;
+}
+
+body.chat-landscape #chat-messages {
+    border-radius: 0;
+    border: 0;
+    background: transparent;
+}
+
+body.chat-landscape .conversation-pane > .shrink-0 {
+    padding: 0.65rem;
+    border-top: 1px solid #374151;
 }
 
 ::-webkit-scrollbar { width: 6px; height: 6px; }
@@ -74,15 +302,116 @@ textarea.auto-expand {
     color: #e0e7ff;
 }
 
+.tree-menu-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.35rem;
+    height: 1.35rem;
+    margin-left: auto;
+    flex-shrink: 0;
+    border: 0;
+    border-radius: 0.3rem;
+    background: transparent;
+    color: #9ca3af;
+    cursor: pointer;
+    padding: 0;
+}
+
+.tree-menu-btn svg {
+    width: 0.95rem;
+    height: 0.95rem;
+}
+
+.tree-menu-btn:hover,
+.tree-row:hover .tree-menu-btn {
+    color: #e5e7eb;
+    background: #4b5563;
+}
+
+.tree-rename-input {
+    flex: 1;
+    min-width: 0;
+    background: #111827;
+    color: #f3f4f6;
+    border: 1px solid #6366f1;
+    border-radius: 0.25rem;
+    font-size: 0.75rem;
+    line-height: 1.2;
+    padding: 0.1rem 0.3rem;
+}
+
 .context-menu {
     position: fixed;
     z-index: 80;
-    min-width: 11rem;
+    min-width: 11.5rem;
     background: #1f2937;
     border: 1px solid #4b5563;
     border-radius: 0.5rem;
     box-shadow: 0 10px 25px rgba(0, 0, 0, 0.45);
     padding: 0.25rem 0;
+}
+
+.context-menu-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 2rem;
+    width: 100%;
+    text-align: left;
+    padding: 0.375rem 0.75rem;
+    font-size: 0.75rem;
+    line-height: 1.25;
+}
+
+.context-menu-label {
+    min-width: 0;
+}
+
+.context-menu-check,
+.context-menu-caret {
+    flex-shrink: 0;
+    margin-left: auto;
+    width: 0.9rem;
+    text-align: right;
+    font-size: 0.75rem;
+}
+
+.context-menu-caret {
+    color: #9ca3af;
+}
+
+.context-menu-item-wrap {
+    position: relative;
+}
+
+.context-submenu {
+    display: none;
+    position: absolute;
+    left: 100%;
+    top: 0;
+    z-index: 81;
+    min-width: 12.5rem;
+    background: #1f2937;
+    border: 1px solid #4b5563;
+    border-radius: 0.5rem;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.45);
+    padding: 0.25rem 0;
+}
+
+.context-menu-item-wrap:hover > .context-submenu,
+.context-menu-item-wrap.open > .context-submenu {
+    display: block;
+}
+
+.context-menu-sep {
+    height: 1px;
+    margin: 0.25rem 0;
+    background: #4b5563;
+}
+
+.context-menu-current {
+    color: #c7d2fe;
 }
 
 .todo-item.dragging {
@@ -131,8 +460,39 @@ textarea.auto-expand {
     color: #e5e7eb;
 }
 
-.todo-filter-btn.active {
-    background: #4338ca;
-    border-color: #6366f1;
-    color: #fff;
+.todo-num {
+    width: 1.4rem;
+    flex-shrink: 0;
+    font-size: 0.7rem;
+    color: #9ca3af;
+    font-variant-numeric: tabular-nums;
+    padding-top: 0.35rem;
+}
+
+textarea.todo-text {
+    resize: none;
+    overflow-y: hidden;
+    line-height: 1.4;
+}
+
+#editor-textarea,
+#markdown-preview {
+    min-height: 0;
+    flex: 1 1 0%;
+}
+
+#markdown-preview {
+    overflow-x: hidden;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+    touch-action: pan-y;
+    outline: none;
+}
+
+#markdown-preview.prose {
+    font-size: 0.95rem;
+}
+#markdown-preview.prose :where(h1, h2, h3, h4, h5, h6) {
+    color: #f9fafb;
 }
