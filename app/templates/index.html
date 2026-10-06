@@ -7,24 +7,29 @@
     <script src="https://cdn.tailwindcss.com?plugins=typography"></script>
     <script src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
-    <link rel="stylesheet" href="/static/writer.css?v=chat-dock">
-    <script src="/static/editor-tools.js?v=wpm260"></script>
+    <link rel="stylesheet" href="/static/writer.css?v={{ asset_version }}">
+    <script src="/static/editor-tools.js?v={{ asset_version }}"></script>
+    <script src="/static/diff.min.js?v={{ asset_version }}"></script>
+    <script src="/static/file-batch.js?v={{ asset_version }}"></script>
+    <script src="/static/composer-keys.js?v={{ asset_version }}"></script>
 </head>
 <body class="bg-gray-900 text-gray-100 h-full w-full font-sans antialiased relative">
 
     <!-- FIXED TOP HEADER -->
-    <header class="fixed top-0 left-0 right-0 h-14 bg-gray-800 border-b border-gray-700 px-4 py-2 flex items-center justify-between z-30 shadow-md">
-        <div class="flex items-center space-x-3">
+    <header id="app-header" class="fixed top-0 left-0 right-0 bg-gray-800 border-b border-gray-700 px-4 py-2 flex items-center justify-between z-30 shadow-md">
+        <div class="header-brand flex items-center space-x-3 min-w-0">
             <span class="font-bold text-base sm:text-lg text-indigo-400 tracking-wide">WriterSystem</span>
             
             <!-- Vault Selector -->
             <select id="vault-select" onchange="onVaultChange()" class="bg-gray-700 text-gray-200 text-xs sm:text-sm rounded-md border border-gray-600 px-2 py-1 focus:outline-none focus:ring-2 focus:ring-indigo-500">
                 <option value="default">default</option>
             </select>
+            <button type="button" onclick="openPasswordModal()" class="text-xs text-gray-300 hover:text-white px-2 py-1 shrink-0">Password</button>
+            <a href="/logout" class="text-xs text-gray-300 hover:text-white px-2 py-1 shrink-0">Log out</a>
         </div>
 
         <!-- 3 TABS -->
-        <nav class="flex space-x-1 bg-gray-900 p-1 rounded-lg border border-gray-700">
+        <nav class="flex space-x-1 bg-gray-900 p-1 rounded-lg border border-gray-700 shrink-0">
             <button onclick="switchTab('editor')" id="tab-btn-editor" class="tab-btn px-2.5 py-1 text-xs sm:text-sm font-medium rounded-md bg-indigo-600 text-white transition-colors">
                 Editor
             </button>
@@ -38,16 +43,11 @@
     </header>
 
     <!-- MAIN VIEWS (Padded top and bottom for fixed bars) -->
-    <main class="w-full h-full pt-14 bg-gray-900 flex flex-col box-border">
+    <main class="w-full h-full bg-gray-900 flex flex-col box-border">
         
         <!-- 1. EDITOR TAB WITH LEFT SIDEBAR -->
         <div id="tab-editor" class="tab-content flex-1 flex flex-row min-h-0 relative overflow-hidden">
-            <aside id="conversation-dock" class="conversation-dock hidden"></aside>
-            <button id="conversation-expand-btn" type="button" onclick="toggleChatPane()" class="edge-rail edge-rail-chat hidden" title="Open conversation" aria-label="Open conversation">
-                <svg class="edge-rail-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m8.25 4.5 7.5 7.5-7.5 7.5"/></svg>
-                <span>Chat</span>
-            </button>
-            
+             
             <!-- LEFT COLLAPSIBLE FILE TREE SIDEBAR -->
             <aside id="file-sidebar" class="w-64 bg-gray-800/95 border-r border-gray-700 flex flex-col shrink-0 transition-all duration-300 ease-in-out z-20">
                 <div class="p-3 border-b border-gray-700 flex justify-between items-center shrink-0">
@@ -64,6 +64,10 @@
                         </button>
                     </div>
                 </div>
+                <div id="compare-banner" class="compare-banner hidden">
+                    <span>Tap a file to compare with <strong id="compare-banner-name"></strong></span>
+                    <button type="button" onclick="cancelCompare()">Cancel</button>
+                </div>
                 <div id="file-tree-container" class="flex-1 p-2 overflow-y-auto text-xs sm:text-sm">
                     <div class="text-gray-500 italic p-2">Loading file tree...</div>
                 </div>
@@ -75,9 +79,9 @@
             </button>
 
             <!-- MAIN EDITOR CONTAINER -->
-            <div class="flex-1 flex flex-col p-4 min-h-0 bg-gray-900">
-                <div class="flex items-center gap-2 mb-2 shrink-0 min-w-0 flex-wrap">
-                    <button type="button" id="filename-display" title="Rename file" class="min-w-0 flex-1 flex items-center gap-1.5 text-left group">
+            <div id="editor-column" class="flex-1 flex flex-col p-4 min-h-0 min-w-0 bg-gray-900 overflow-hidden">
+                <div class="editor-toolbar mb-2 shrink-0 min-w-0">
+                    <button type="button" id="filename-display" title="Rename file" class="min-w-0 flex items-center gap-1.5 text-left group">
                         <span id="filename-truncated" class="min-w-0 block text-base sm:text-lg font-semibold text-gray-200 whitespace-nowrap overflow-hidden" title="untitled.md">untitled.md</span>
                         <svg class="w-4 h-4 shrink-0 text-gray-500 group-hover:text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536M4 20h4.586a1 1 0 00.707-.293l9.414-9.414a2 2 0 000-2.828l-3.172-3.172a2 2 0 00-2.828 0L4.293 14.707A1 1 0 004 15.414V20z"/>
@@ -86,6 +90,11 @@
                     <input type="text" id="filename-editor" class="hidden flex-1 bg-gray-800 text-base sm:text-lg font-semibold text-gray-200 rounded-md border border-indigo-500 px-2 py-0.5 min-w-0" />
                     <button type="button" onclick="createNewFile('')" class="toolbar-btn" title="New file">+ New</button>
                     <button type="button" id="find-toggle-btn" onclick="toggleFindBar()" class="toolbar-btn">Find</button>
+                    <button type="button" id="history-open-btn" onclick="openHistory(currentFilePath)" class="toolbar-btn">History</button>
+                    <div class="outline-nav">
+                        <button type="button" id="outline-toggle-btn" class="toolbar-btn" aria-haspopup="listbox" aria-expanded="false" onclick="toggleOutlineMenu()">Go to</button>
+                        <div id="outline-menu" class="outline-menu hidden" role="listbox"></div>
+                    </div>
                     <button type="button" id="preview-toggle" class="preview-switch" role="switch" aria-checked="false" onclick="toggleMarkdownPreview()">
                         <span>Preview</span>
                         <span class="preview-switch-control" aria-hidden="true">
@@ -112,13 +121,19 @@
                         <button type="button" onclick="toggleFindBar(false)" class="px-2 py-1 rounded bg-gray-700 text-gray-200">Close</button>
                     </div>
                 </div>
-                <textarea id="editor-textarea" class="w-full flex-1 min-h-0 bg-gray-800 text-gray-100 p-3.5 rounded-lg border border-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono text-sm resize-none" placeholder="Create a new file or select one from the sidebar..."></textarea>
-                <div id="markdown-preview" tabindex="0" class="hidden w-full flex-1 min-h-0 overflow-y-auto overflow-x-hidden bg-gray-800 text-gray-100 p-4 rounded-lg border border-gray-700 prose prose-invert max-w-none"></div>
+                <textarea id="editor-textarea" class="w-full min-w-0 flex-1 min-h-0 bg-gray-800 text-gray-100 p-3.5 rounded-lg border border-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono text-sm resize-none" placeholder="Create a new file or select one from the sidebar..."></textarea>
+                <div id="markdown-preview" tabindex="0" class="hidden w-full min-w-0 flex-1 min-h-0 overflow-y-auto overflow-x-hidden bg-gray-800 text-gray-100 p-4 rounded-lg border border-gray-700 prose prose-invert max-w-none"></div>
                 <div id="editor-status" class="shrink-0 mt-2 flex items-center justify-between text-[11px] sm:text-xs text-gray-500">
                     <span id="editor-word-count">0 words</span>
                     <span id="editor-read-time">0 min read</span>
                 </div>
             </div>
+
+            <button id="conversation-expand-btn" type="button" onclick="toggleChatPane()" class="edge-rail edge-rail-end edge-rail-chat hidden" title="Open conversation" aria-label="Open conversation">
+                <svg class="edge-rail-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.75 19.5 8.25 12l7.5-7.5"/></svg>
+                <span>Chat</span>
+            </button>
+            <aside id="conversation-dock" class="conversation-dock hidden"></aside>
         </div>
 
         <!-- 2. TODOS TAB -->
@@ -132,9 +147,9 @@
                 </div>
                 <div id="guppy-body" class="flex-1 min-h-0 flex flex-col">
                     <div id="guppy-messages" class="flex-1 overflow-y-auto p-3 space-y-3 text-sm">
-                        <div class="bg-gray-700/60 p-3 rounded-lg max-w-xl text-sm border border-gray-600">
+                        <div class="chat-bubble bg-gray-700/60 p-3 rounded-lg max-w-xl text-sm border border-gray-600">
                             <span class="block text-xs font-semibold text-emerald-400 mb-1">Guppy</span>
-                            Tell me to add, finish, reopen, demote, or reshuffle tasks. You can also ask what's on the list and how I'd prioritize it.
+                            <div data-bubble-body>Tell me to add, finish, reopen, demote, or reshuffle tasks. You can also ask what's on the list and how I'd prioritize it.</div>
                         </div>
                     </div>
                     <div class="shrink-0 p-2.5 border-t border-gray-700 flex items-end gap-2">
@@ -184,13 +199,13 @@
                     <div class="conversation-pane-header">
                         <h2 class="text-lg sm:text-xl font-bold text-gray-200">Writing conversation</h2>
                         <button type="button" class="icon-btn chat-collapse-btn" onclick="toggleChatPane()" title="Collapse conversation" aria-label="Collapse conversation">
-                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.75 19.5 8.25 12l7.5-7.5"/></svg>
+                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m8.25 4.5 7.5 7.5-7.5 7.5"/></svg>
                         </button>
                     </div>
                     <div id="chat-messages" class="flex-1 bg-gray-800 rounded-lg border border-gray-700 p-4 overflow-y-auto space-y-4 min-h-0">
-                        <div class="bg-gray-700/60 p-3 rounded-lg max-w-xl text-sm border border-gray-600">
+                        <div class="chat-bubble bg-gray-700/60 p-3 rounded-lg max-w-xl text-sm border border-gray-600">
                             <span class="block text-xs font-semibold text-indigo-400 mb-1">System</span>
-                            Welcome to WriterSystem. Send a message below to chat with Gemini or process text.
+                            <div data-bubble-body>Welcome to WriterSystem. Send a message below to chat with Gemini or process text.</div>
                         </div>
                     </div>
                     <div class="shrink-0 pt-3 flex items-end gap-2">
@@ -198,7 +213,7 @@
                             <textarea
                                 id="chat-input"
                                 rows="1"
-                                placeholder="Ask AI or instruct edits (Press Shift+Enter for new line)..."
+                                placeholder="Ask AI or instruct edits…"
                                 class="auto-expand w-full bg-gray-900 text-gray-100 placeholder-gray-500 focus:outline-none text-xs sm:text-sm leading-relaxed block"
                             ></textarea>
                         </div>
@@ -228,15 +243,15 @@
     </div>
 
     <div id="folder-modal" class="modal-overlay fixed inset-0 z-50 hidden items-center justify-center p-4">
-        <div class="bg-gray-800 border border-gray-600 rounded-lg w-full max-w-md max-h-[80vh] flex flex-col shadow-2xl">
+        <div class="modal-panel bg-gray-800 border border-gray-600 rounded-lg w-full max-w-md max-h-[80vh] flex flex-col shadow-2xl">
             <div class="px-4 py-3 border-b border-gray-700">
                 <h3 id="folder-modal-title" class="text-sm font-semibold text-gray-100">Move file</h3>
                 <p id="folder-modal-subtitle" class="text-xs text-gray-400 mt-1"></p>
             </div>
             <div id="folder-modal-list" class="flex-1 overflow-y-auto p-2 text-sm"></div>
             <div class="px-4 py-3 border-t border-gray-700 flex justify-end gap-2">
-                <button onclick="closeFolderModal()" class="px-3 py-1.5 text-xs rounded-md bg-gray-700 text-gray-200 hover:bg-gray-600">Cancel</button>
-                <button id="folder-modal-confirm" onclick="confirmFolderModal()" class="px-3 py-1.5 text-xs rounded-md bg-indigo-600 text-white hover:bg-indigo-500">Move</button>
+                <button type="button" onclick="closeFolderModal()" class="px-3 py-1.5 text-xs rounded-md bg-gray-700 text-gray-200 hover:bg-gray-600">Cancel</button>
+                <button type="button" id="folder-modal-confirm" onclick="confirmFolderModal()" class="px-3 py-1.5 text-xs rounded-md bg-indigo-600 text-white hover:bg-indigo-500">Move</button>
             </div>
         </div>
     </div>
@@ -251,6 +266,127 @@
                 <button onclick="resolveConflict('cancel')" class="px-3 py-1.5 text-xs rounded-md bg-gray-700 text-gray-200 hover:bg-gray-600">Cancel</button>
             </div>
         </div>
+    </div>
+
+    <div id="diff-modal" class="modal-overlay fixed inset-0 z-[55] hidden items-center justify-center p-3">
+        <div class="diff-dialog bg-gray-800 border border-gray-600 rounded-lg w-full max-w-6xl max-h-[92vh] flex flex-col shadow-2xl">
+            <div class="px-4 py-3 border-b border-gray-700 flex items-center justify-between gap-2 flex-wrap">
+                <h3 class="text-sm font-semibold text-gray-100">Compare files</h3>
+                <div class="flex items-center gap-3 text-[11px] text-gray-300">
+                    <label class="flex items-center gap-1"><input id="diff-ignore-case" type="checkbox" onchange="refreshDiffView()"> Ignore case</label>
+                    <label class="flex items-center gap-1"><input id="diff-ignore-space" type="checkbox" onchange="refreshDiffView()"> Ignore whitespace</label>
+                </div>
+            </div>
+            <p id="diff-status" class="px-4 py-2 text-xs text-gray-300 border-b border-gray-700"></p>
+            <div class="diff-panes">
+                <div class="diff-side">
+                    <div id="diff-left-name" class="diff-name"></div>
+                    <div class="diff-editor-wrap">
+                        <pre id="diff-left-hl" class="diff-hl" aria-hidden="true"></pre>
+                        <textarea id="diff-left-edit" class="diff-edit" spellcheck="false"></textarea>
+                    </div>
+                </div>
+                <div class="diff-mid">
+                    <div class="diff-name diff-mid-head" aria-hidden="true"></div>
+                    <div id="diff-gutter" class="diff-gutter">
+                        <div id="diff-gutter-inner" class="diff-gutter-inner"></div>
+                    </div>
+                </div>
+                <div class="diff-side">
+                    <div id="diff-right-name" class="diff-name"></div>
+                    <div class="diff-editor-wrap">
+                        <pre id="diff-right-hl" class="diff-hl" aria-hidden="true"></pre>
+                        <textarea id="diff-right-edit" class="diff-edit" spellcheck="false"></textarea>
+                    </div>
+                </div>
+            </div>
+            <div class="px-4 py-3 border-t border-gray-700 flex justify-end gap-2 flex-wrap">
+                <button type="button" onclick="saveDiffSide('left')" class="px-3 py-1.5 text-xs rounded-md bg-gray-700 text-gray-200 hover:bg-gray-600">Save left</button>
+                <button type="button" onclick="saveDiffSide('right')" class="px-3 py-1.5 text-xs rounded-md bg-gray-700 text-gray-200 hover:bg-gray-600">Save right</button>
+                <button type="button" onclick="closeDiffModal()" class="px-3 py-1.5 text-xs rounded-md bg-indigo-600 text-white hover:bg-indigo-500">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="merge-modal" class="modal-overlay fixed inset-0 z-[55] hidden items-center justify-center p-4">
+        <div class="modal-panel bg-gray-800 border border-gray-600 rounded-lg w-full max-w-lg max-h-[85vh] flex flex-col shadow-2xl">
+            <div class="px-4 py-3 border-b border-gray-700">
+                <h3 class="text-sm font-semibold text-gray-100">Export merge</h3>
+                <p class="text-xs text-gray-400 mt-1">Files follow the tree order. Turn a switch off to skip that file.</p>
+            </div>
+            <ol id="merge-file-list" class="flex-1 overflow-y-auto p-2 space-y-1"></ol>
+            <div class="px-4 py-3 border-t border-gray-700 space-y-3">
+                <label class="block text-xs text-gray-400">Merged file name
+                    <input id="merge-filename" type="text" class="mt-1 w-full bg-gray-900 border border-gray-700 rounded-md px-2 py-1.5 text-sm text-gray-100">
+                </label>
+                <div class="flex justify-end gap-2">
+                    <button type="button" onclick="closeMergeModal()" class="px-3 py-1.5 text-xs rounded-md bg-gray-700 text-gray-200 hover:bg-gray-600">Cancel</button>
+                    <button type="button" onclick="confirmMergeModal()" class="px-3 py-1.5 text-xs rounded-md bg-indigo-600 text-white hover:bg-indigo-500">OK</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="extract-modal" class="modal-overlay fixed inset-0 z-[55] hidden items-center justify-center p-4">
+        <div class="modal-panel bg-gray-800 border border-gray-600 rounded-lg w-full max-w-lg max-h-[85vh] flex flex-col shadow-2xl">
+            <div class="px-4 py-3 border-b border-gray-700">
+                <h3 class="text-sm font-semibold text-gray-100">Create extracted file</h3>
+                <p class="text-xs text-gray-400 mt-1">Review the name and text. The file is created only after you accept.</p>
+            </div>
+            <div class="px-4 py-3 space-y-3 overflow-y-auto">
+                <label class="block text-xs text-gray-400">File name
+                    <input id="extract-filename" type="text" class="mt-1 w-full bg-gray-900 border border-gray-700 rounded-md px-2 py-1.5 text-sm text-gray-100">
+                </label>
+                <label class="block text-xs text-gray-400">Text
+                    <textarea id="extract-content" rows="12" class="mt-1 w-full max-h-64 bg-gray-900 border border-gray-700 rounded-md px-2 py-1.5 text-sm text-gray-100 font-mono"></textarea>
+                </label>
+            </div>
+            <div class="px-4 py-3 border-t border-gray-700 flex justify-end gap-2">
+                <button type="button" onclick="closeExtractModal()" class="px-3 py-1.5 text-xs rounded-md bg-gray-700 text-gray-200 hover:bg-gray-600">Cancel</button>
+                <button type="button" onclick="confirmExtractModal()" class="px-3 py-1.5 text-xs rounded-md bg-indigo-600 text-white hover:bg-indigo-500">Create</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="history-modal" class="modal-overlay fixed inset-0 z-[58] hidden items-center justify-center p-3">
+        <div class="history-dialog bg-gray-800 border border-gray-600 rounded-lg w-full flex flex-col shadow-2xl">
+            <div class="px-4 py-3 border-b border-gray-700 flex items-start justify-between gap-3">
+                <div class="min-w-0">
+                    <h3 class="text-sm font-semibold text-gray-100">History</h3>
+                    <p id="history-path" class="text-xs text-gray-400 truncate"></p>
+                </div>
+                <button type="button" onclick="closeHistory()" class="px-2 py-1 text-xs rounded-md bg-gray-700 text-gray-200 hover:bg-gray-600 shrink-0">Close</button>
+            </div>
+            <div class="history-body min-h-0">
+                <div id="history-list" class="history-list" role="listbox" aria-label="Versions"></div>
+                <div class="history-preview min-h-0 flex flex-col">
+                    <div class="flex items-center gap-2 flex-wrap px-3 py-2 border-b border-gray-700">
+                        <input id="history-label" type="text" maxlength="80" placeholder="Label this version" class="flex-1 min-w-[8rem] bg-gray-900 border border-gray-600 rounded-md px-2 py-1.5 text-sm text-gray-100">
+                        <button type="button" onclick="renameHistoryLabel()" class="px-3 py-1.5 text-xs rounded-md bg-gray-700 text-gray-200 hover:bg-gray-600">Rename</button>
+                        <button type="button" onclick="restoreHistoryVersion()" class="px-3 py-1.5 text-xs rounded-md bg-indigo-600 text-white hover:bg-indigo-500">Restore</button>
+                    </div>
+                    <p id="history-status" class="px-3 py-1 text-[11px] text-gray-400"></p>
+                    <pre id="history-text" class="history-text"></pre>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="password-modal" class="modal-overlay fixed inset-0 z-[70] hidden items-center justify-center p-4">
+        <form id="password-form" class="bg-gray-800 border border-gray-600 rounded-lg w-full max-w-sm p-4 shadow-2xl" onsubmit="submitPasswordChange(event)">
+            <h3 class="text-sm font-semibold text-gray-100 mb-2">Change password</h3>
+            <p id="password-message" class="text-xs text-gray-400 mb-3">Other signed-in browsers are signed out when this saves.</p>
+            <label class="block text-xs text-gray-300 mb-1" for="pw-current">Current password</label>
+            <input id="pw-current" type="password" autocomplete="current-password" required class="w-full bg-gray-900 border border-gray-600 rounded-md px-2 py-1.5 text-sm mb-2">
+            <label class="block text-xs text-gray-300 mb-1" for="pw-next">New password</label>
+            <input id="pw-next" type="password" autocomplete="new-password" required minlength="8" class="w-full bg-gray-900 border border-gray-600 rounded-md px-2 py-1.5 text-sm mb-2">
+            <label class="block text-xs text-gray-300 mb-1" for="pw-confirm">Confirm new password</label>
+            <input id="pw-confirm" type="password" autocomplete="new-password" required minlength="8" class="w-full bg-gray-900 border border-gray-600 rounded-md px-2 py-1.5 text-sm mb-3">
+            <div class="flex justify-end gap-2">
+                <button type="button" onclick="closePasswordModal()" class="px-3 py-1.5 text-xs rounded-md bg-gray-700 text-gray-200 hover:bg-gray-600">Cancel</button>
+                <button type="submit" class="px-3 py-1.5 text-xs rounded-md bg-indigo-600 text-white hover:bg-indigo-500">Save</button>
+            </div>
+        </form>
     </div>
 
     <div id="context-menu" class="context-menu hidden"></div>
@@ -271,6 +407,13 @@
         let pathMtimes = {};
         let treeSort = localStorage.getItem('writer-tree-sort') === 'updated' ? 'updated' : 'name';
         let expandedFolders = new Set();
+        let vaultFileList = [];
+        let treeSelection = new Map();
+        let lastTreeAnchor = null;
+        let mergeOrder = [];
+        let diffState = { leftPath: '', rightPath: '', hunks: [] };
+        let diffRefreshTimer = null;
+        let diffScrollLock = false;
         let pendingConflict = null;
         let folderModal = null;
         let todoItems = [];
@@ -290,6 +433,7 @@
         let suppressClick = false;
 
         const chatInput = document.getElementById('chat-input');
+        let pendingExtractFolder = '';
         const guppyInput = document.getElementById('guppy-input');
         const editor = document.getElementById('editor-textarea');
         const contextMenu = document.getElementById('context-menu');
@@ -462,6 +606,24 @@
             });
         }
 
+        function composerEnv() {
+            return {
+                userAgent: navigator.userAgent || '',
+                maxTouchPoints: navigator.maxTouchPoints || 0,
+                screenWidth: screen.width,
+                screenHeight: screen.height,
+                landscape: isLandscapeChat(),
+                coarsePointer: window.matchMedia('(pointer: coarse)').matches,
+                awaiting: !!(chatInput && chatInput.dataset.awaiting === '1'),
+            };
+        }
+
+        function syncComposerPlaceholders() {
+            const env = composerEnv();
+            if (chatInput) chatInput.placeholder = WriterComposer.composerPlaceholder('writing', env);
+            if (guppyInput) guppyInput.placeholder = WriterComposer.composerPlaceholder('todos', env);
+        }
+
         function bindExpandingInput(el, submitChannel) {
             if (!el) return;
             el.addEventListener('input', function() {
@@ -469,12 +631,18 @@
                 const calculatedHeight = Math.min(this.scrollHeight, 120);
                 this.style.height = `${calculatedHeight}px`;
                 this.style.overflowY = this.scrollHeight > 120 ? 'auto' : 'hidden';
-            });
-            el.addEventListener('keydown', function(e) {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
+                if (WriterComposer.doubleEnterSends(this.value, composerEnv())) {
+                    this.value = this.value.replace(/\n+$/, '');
+                    this.style.height = 'auto';
+                    this.style.overflowY = 'hidden';
                     submitChat(submitChannel);
                 }
+            });
+            el.addEventListener('keydown', function(e) {
+                if (e.key !== 'Enter' || e.shiftKey) return;
+                if (!isLandscapeChat() || !(e.ctrlKey || e.metaKey)) return;
+                e.preventDefault();
+                submitChat(submitChannel);
             });
         }
         bindExpandingInput(chatInput, 'writing');
@@ -532,6 +700,7 @@
             const slot = document.getElementById(landscape ? 'conversation-dock' : 'conversation-host');
             if (pane && slot && pane.parentElement !== slot) slot.appendChild(pane);
             applyChatPane();
+            syncComposerPlaceholders();
             if (landscape && activeTab === 'conversation') {
                 switchTab('editor', { skipHistory: true });
             }
@@ -657,9 +826,15 @@
                 if (lastPath) expandAncestors(lastPath);
                 await loadFiles();
                 await restoreLastFile();
+                loadVisibleChatHistory();
             } catch (e) {
                 console.error('Failed to fetch vaults:', e);
             }
+        }
+
+        function loadVisibleChatHistory() {
+            if (activeTab === 'todos') loadChatHistory('todos');
+            if (activeTab === 'conversation' || isLandscapeChat()) loadChatHistory('writing');
         }
 
         function onVaultChange() {
@@ -695,13 +870,15 @@
                     const baseName = filePath.split('/').pop().toLowerCase();
                     return baseName !== 'todo.md' && baseName !== 'todos.md';
                 });
+                vaultFileList = filteredFiles;
+                pruneTreeSelection();
                 if (filteredFiles.length === 0 && knownFolders.filter(Boolean).length === 0) {
                     treeContainer.innerHTML = `<div class="text-gray-500 text-xs p-2">No notes found. Use + to create one.</div>`;
                     return;
                 }
                 const tree = buildTreeObject(filteredFiles, knownFolders);
                 treeContainer.innerHTML = renderTreeHTML(tree);
-                highlightActiveFile();
+                paintTreeSelection();
             } catch (e) {
                 treeContainer.innerHTML = `<div class="text-red-400 text-xs p-2">Error: ${e.message}</div>`;
             }
@@ -781,7 +958,7 @@
                     `;
                 } else {
                     html += `
-                        <div class="tree-row flex items-center gap-1.5 py-1 px-2 rounded hover:bg-gray-700 cursor-pointer text-gray-400 hover:text-gray-100 transition-colors"
+                        <div class="tree-row flex items-center gap-1.5 py-1 px-2 rounded hover:bg-gray-700 cursor-pointer text-gray-400 hover:text-gray-100 transition-colors select-none"
                              data-type="file" data-path="${escapeAttr(fullPath)}" draggable="true">
                             <span class="text-xs text-gray-500">📄</span>
                             <span class="tree-label font-mono text-xs truncate flex-1 min-w-0">${escapeHtml(key)}</span>
@@ -795,9 +972,109 @@
         }
 
         function highlightActiveFile() {
-            document.querySelectorAll('.tree-row').forEach(row => {
+            paintTreeSelection();
+        }
+
+        function treeSelKey(type, path) {
+            return `${type}:${path}`;
+        }
+
+        function pruneTreeSelection() {
+            const folderSet = new Set(knownFolders.filter(Boolean));
+            const fileSet = new Set(vaultFileList);
+            Array.from(treeSelection.entries()).forEach(([key, item]) => {
+                const exists = item.type === 'folder' ? folderSet.has(item.path) : fileSet.has(item.path);
+                if (!exists) treeSelection.delete(key);
+            });
+        }
+
+        function paintTreeSelection() {
+            document.querySelectorAll('.tree-row').forEach((row) => {
+                const selected = treeSelection.has(treeSelKey(row.dataset.type, row.dataset.path));
+                row.classList.toggle('tree-selected', selected);
                 row.classList.toggle('active-file', row.dataset.type === 'file' && row.dataset.path === currentFilePath);
             });
+        }
+
+        function visibleTreeRows() {
+            return Array.from(treeContainer.querySelectorAll('.tree-row'));
+        }
+
+        function applyTreeClick(row, { multi, range }) {
+            const path = row.dataset.path;
+            const type = row.dataset.type;
+            const rows = visibleTreeRows();
+            if (range && lastTreeAnchor) {
+                const a = rows.findIndex((r) => r.dataset.path === lastTreeAnchor.path && r.dataset.type === lastTreeAnchor.type);
+                const b = rows.findIndex((r) => r === row);
+                if (a >= 0 && b >= 0) {
+                    if (!multi) treeSelection.clear();
+                    const lo = Math.min(a, b);
+                    const hi = Math.max(a, b);
+                    for (let i = lo; i <= hi; i += 1) {
+                        const r = rows[i];
+                        treeSelection.set(treeSelKey(r.dataset.type, r.dataset.path), { path: r.dataset.path, type: r.dataset.type });
+                    }
+                }
+            } else if (multi) {
+                const key = treeSelKey(type, path);
+                if (treeSelection.has(key)) treeSelection.delete(key);
+                else treeSelection.set(key, { path, type });
+                lastTreeAnchor = { path, type };
+            } else {
+                treeSelection.clear();
+                treeSelection.set(treeSelKey(type, path), { path, type });
+                lastTreeAnchor = { path, type };
+            }
+            paintTreeSelection();
+        }
+
+        function contextSelection(type, path) {
+            if (type === 'file' || type === 'folder') {
+                const key = treeSelKey(type, path);
+                if (!treeSelection.has(key)) {
+                    treeSelection.clear();
+                    treeSelection.set(key, { path, type });
+                    lastTreeAnchor = { path, type };
+                    paintTreeSelection();
+                }
+            }
+            return Array.from(treeSelection.values());
+        }
+
+        function filesUnderFolder(folderPath) {
+            return vaultFileList.filter((filePath) => filePath === folderPath || filePath.startsWith(`${folderPath}/`));
+        }
+
+        function filesInTreeOrder(paths) {
+            const wanted = new Set(paths);
+            const ordered = [];
+            const walk = (node, currentPath) => {
+                sortTreeEntries(Object.entries(node), currentPath).forEach(([key, value]) => {
+                    const fullPath = currentPath ? `${currentPath}/${key}` : key;
+                    if (value !== null) walk(value, fullPath);
+                    else if (wanted.has(fullPath)) ordered.push(fullPath);
+                });
+            };
+            walk(buildTreeObject(vaultFileList, knownFolders), '');
+            paths.forEach((path) => {
+                if (!ordered.includes(path)) ordered.push(path);
+            });
+            return ordered;
+        }
+
+        function mergeFilesFromSelection(selected) {
+            const seen = new Set();
+            const files = [];
+            selected.forEach((item) => {
+                const extra = item.type === 'folder' ? filesUnderFolder(item.path) : [item.path];
+                extra.forEach((filePath) => {
+                    if (seen.has(filePath)) return;
+                    seen.add(filePath);
+                    files.push(filePath);
+                });
+            });
+            return filesInTreeOrder(files);
         }
 
         function toggleFolder(row) {
@@ -1184,6 +1461,59 @@
             editor.focus();
         }
 
+        async function createNewFolder(folder) {
+            hideContextMenu();
+            const result = await postFileOp('/api/file/mkdir', {
+                vault: currentVault(),
+                folder: folder || ''
+            });
+            if (!result) return;
+            const path = result.filename;
+            if (folder) expandedFolders.add(folder);
+            await loadFiles();
+            beginTreeRename(path, 'folder');
+        }
+
+        function isModalBusy(modalEl) {
+            return !!(modalEl && modalEl.dataset.busy === '1');
+        }
+
+        function setModalBusy(modalEl, busy, message) {
+            if (!modalEl) return;
+            const panel = modalEl.querySelector('.modal-panel') || modalEl.firstElementChild;
+            if (!panel) return;
+            panel.classList.add('modal-panel');
+            let overlay = panel.querySelector('.modal-busy');
+            if (!overlay) {
+                overlay = document.createElement('div');
+                overlay.className = 'modal-busy hidden';
+                overlay.setAttribute('role', 'status');
+                overlay.innerHTML = '<div class="modal-busy-inner"><div class="modal-spinner" aria-hidden="true"></div><p class="modal-busy-msg">Working…</p></div>';
+                panel.appendChild(overlay);
+            }
+            const msg = overlay.querySelector('.modal-busy-msg');
+            if (msg) msg.textContent = message || 'Working…';
+            if (busy) {
+                modalEl.dataset.busy = '1';
+                modalEl.setAttribute('aria-busy', 'true');
+                overlay.classList.remove('hidden');
+                panel.querySelectorAll('button, input, textarea, select').forEach((el) => {
+                    if (el.dataset.busyPrevDisabled == null) {
+                        el.dataset.busyPrevDisabled = el.disabled ? '1' : '0';
+                    }
+                    el.disabled = true;
+                });
+            } else {
+                modalEl.dataset.busy = '';
+                modalEl.setAttribute('aria-busy', 'false');
+                overlay.classList.add('hidden');
+                panel.querySelectorAll('[data-busy-prev-disabled]').forEach((el) => {
+                    el.disabled = el.dataset.busyPrevDisabled === '1';
+                    delete el.dataset.busyPrevDisabled;
+                });
+            }
+        }
+
         function startInlineRename() {
             beginRename(currentFilePath || UNTITLED_NAME);
         }
@@ -1372,11 +1702,18 @@
             if (currentFilePath === oldPath) currentFilePath = newPath;
         }
 
-        function openFolderModal(action, path) {
+        function openFolderModal(action, pathOrPaths) {
             hideContextMenu();
-            folderModal = { action, path, destination: folderOf(path) };
-            document.getElementById('folder-modal-title').textContent = action === 'copy' ? 'Copy file' : 'Move file';
-            document.getElementById('folder-modal-subtitle').textContent = fileNameOf(path);
+            const paths = Array.isArray(pathOrPaths) ? pathOrPaths.filter(Boolean) : [pathOrPaths].filter(Boolean);
+            if (!paths.length) return;
+            folderModal = { action, paths, destination: folderOf(paths[0]) };
+            const many = paths.length > 1;
+            document.getElementById('folder-modal-title').textContent = action === 'copy'
+                ? (many ? `Copy ${paths.length} files` : 'Copy file')
+                : (many ? `Move ${paths.length} files` : 'Move file');
+            document.getElementById('folder-modal-subtitle').textContent = many
+                ? paths.map(fileNameOf).join(', ')
+                : fileNameOf(paths[0]);
             const list = document.getElementById('folder-modal-list');
             list.innerHTML = knownFolders.map(folder => {
                 const label = folder || '(vault root)';
@@ -1397,6 +1734,8 @@
 
         function closeFolderModal() {
             const modal = document.getElementById('folder-modal');
+            if (isModalBusy(modal)) return;
+            setModalBusy(modal, false);
             modal.classList.add('hidden');
             modal.classList.remove('flex');
             folderModal = null;
@@ -1404,44 +1743,50 @@
 
         async function confirmFolderModal() {
             if (!folderModal) return;
-            const { action, path, destination } = folderModal;
-            closeFolderModal();
-            const result = await postFileOp(action === 'copy' ? '/api/file/copy' : '/api/file/move', {
-                vault: currentVault(),
-                path,
-                destination
-            });
-            if (!result) return;
-            if (action === 'move' && currentFilePath === path) currentFilePath = result.filename;
-            if (action === 'copy') await openFile(result.filename);
-            await loadFiles();
-            updateFilenameLabel();
+            const modal = document.getElementById('folder-modal');
+            if (isModalBusy(modal)) return;
+            const { action, paths, destination } = folderModal;
+            const label = action === 'copy' ? 'Copying…' : 'Moving…';
+            setModalBusy(modal, true, label);
+            let lastResult = null;
+            try {
+                for (const path of paths) {
+                    const result = await postFileOp(action === 'copy' ? '/api/file/copy' : '/api/file/move', {
+                        vault: currentVault(),
+                        path,
+                        destination
+                    });
+                    if (!result) return;
+                    lastResult = result;
+                    if (action === 'move' && currentFilePath === path) currentFilePath = result.filename;
+                }
+                if (action === 'copy' && paths.length === 1 && lastResult) await openFile(lastResult.filename);
+                await loadFiles();
+                updateFilenameLabel();
+                setModalBusy(modal, false);
+                closeFolderModal();
+            } finally {
+                if (modal.dataset.busy === '1') setModalBusy(modal, false);
+            }
         }
 
-        async function deletePath(path, type = 'file') {
+        async function deleteSelected(selected) {
             hideContextMenu();
-            const label = type === 'folder'
-                ? `folder "${path}" and everything inside it`
-                : fileNameOf(path);
-            if (!confirm(`Delete ${label}?`)) return;
-            const res = await fetch(`/api/file?vault=${encodeURIComponent(currentVault())}&path=${encodeURIComponent(path)}`, {
-                method: 'DELETE'
-            });
-            if (!res.ok) {
-                alert(type === 'folder' ? 'Could not delete folder' : 'Could not delete file');
-                return;
-            }
-            if (type === 'folder') {
-                if (currentFilePath === path || currentFilePath.startsWith(`${path}/`)) {
-                    currentFilePath = '';
-                    editor.value = '';
-                    lastSavedContent = '';
-                    rememberOpenFile('');
-                    updateFilenameLabel();
-                    setSaveStatus('Unsaved', 'text-amber-400');
-                    updateEditorStats(true);
-                }
-            } else if (currentFilePath === path) {
+            const folders = selected.filter((s) => s.type === 'folder').map((s) => s.path)
+                .sort((a, b) => b.length - a.length);
+            const files = selected.filter((s) => s.type === 'file').map((s) => s.path)
+                .filter((p) => !folders.some((f) => p === f || p.startsWith(`${f}/`)));
+            const count = files.length + folders.length;
+            if (!count) return;
+            if (!confirm(count === 1
+                ? `Delete ${folders.length ? `folder "${folders[0]}" and everything inside it` : fileNameOf(files[0])}?`
+                : `Delete ${count} items?`)) return;
+            const clearIfGone = (path, isFolder) => {
+                if (!currentFilePath) return;
+                const gone = isFolder
+                    ? (currentFilePath === path || currentFilePath.startsWith(`${path}/`))
+                    : currentFilePath === path;
+                if (!gone) return;
                 currentFilePath = '';
                 editor.value = '';
                 lastSavedContent = '';
@@ -1449,8 +1794,357 @@
                 updateFilenameLabel();
                 setSaveStatus('Unsaved', 'text-amber-400');
                 updateEditorStats(true);
+            };
+            for (const path of files) {
+                const res = await fetch(`/api/file?vault=${encodeURIComponent(currentVault())}&path=${encodeURIComponent(path)}`, { method: 'DELETE' });
+                if (!res.ok) {
+                    alert(`Could not delete ${fileNameOf(path)}`);
+                    break;
+                }
+                clearIfGone(path, false);
             }
+            for (const path of folders) {
+                const res = await fetch(`/api/file?vault=${encodeURIComponent(currentVault())}&path=${encodeURIComponent(path)}`, { method: 'DELETE' });
+                if (!res.ok) {
+                    alert(`Could not delete folder ${path}`);
+                    break;
+                }
+                clearIfGone(path, true);
+            }
+            treeSelection.clear();
             await loadFiles();
+        }
+
+        function downloadFiles(paths) {
+            hideContextMenu();
+            const list = (Array.isArray(paths) ? paths : [paths]).filter(Boolean);
+            for (const path of list) {
+                const a = document.createElement('a');
+                a.href = `/api/file/download?vault=${encodeURIComponent(currentVault())}&path=${encodeURIComponent(path)}`;
+                a.download = fileNameOf(path);
+                a.rel = 'noopener';
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+            }
+        }
+
+        async function fetchFileText(path) {
+            const res = await fetch(`/api/file?vault=${encodeURIComponent(currentVault())}&path=${encodeURIComponent(path)}`);
+            if (!res.ok) throw new Error(`Could not read ${path}`);
+            const data = await res.json();
+            return data.content || '';
+        }
+
+        function lineAtCursor(textarea) {
+            const value = textarea.value || '';
+            const index = textarea.selectionStart || 0;
+            const start = value.lastIndexOf('\n', index - 1) + 1;
+            let end = value.indexOf('\n', index);
+            if (end < 0) end = value.length;
+            return value.slice(start, end);
+        }
+
+        function diffLineMetrics(textarea) {
+            const style = window.getComputedStyle(textarea);
+            let lineHeight = parseFloat(style.lineHeight);
+            if (!lineHeight || Number.isNaN(lineHeight)) {
+                lineHeight = parseFloat(style.fontSize) * 1.5;
+            }
+            return {
+                lineHeight,
+                paddingTop: parseFloat(style.paddingTop) || 0,
+            };
+        }
+
+        function offsetToY(textarea, offset) {
+            const { lineHeight, paddingTop } = diffLineMetrics(textarea);
+            const line = (textarea.value || '').slice(0, Math.max(0, offset)).split('\n').length - 1;
+            return paddingTop + line * lineHeight;
+        }
+
+        function layoutDiffGutter() {
+            const left = document.getElementById('diff-left-edit');
+            const right = document.getElementById('diff-right-edit');
+            const inner = document.getElementById('diff-gutter-inner');
+            const gutter = document.getElementById('diff-gutter');
+            if (!left || !right || !inner || !gutter) return;
+            inner.style.height = `${Math.max(left.scrollHeight, right.scrollHeight, gutter.clientHeight)}px`;
+            const { lineHeight } = diffLineMetrics(left);
+            const pairHeight = Math.max(16, lineHeight);
+            let lastBottom = 0;
+            inner.innerHTML = (diffState.hunks || []).map((hunk, idx) => {
+                const yLeft = offsetToY(left, hunk.leftStart);
+                const yRight = offsetToY(right, hunk.rightStart);
+                let y = hunk.leftText ? yLeft : yRight;
+                if (y < lastBottom) y = lastBottom;
+                lastBottom = y + pairHeight;
+                return `<div class="diff-arrow-pair" data-hunk="${idx}" style="top:${y}px">
+                    <button type="button" class="diff-copy" data-copy="rtl" data-hunk="${idx}" title="Copy right to left" aria-label="Copy right to left">
+                        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M10.5 3.5 5.5 8l5 4.5"/></svg>
+                    </button>
+                    <button type="button" class="diff-copy" data-copy="ltr" data-hunk="${idx}" title="Copy left to right" aria-label="Copy left to right">
+                        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M5.5 3.5 10.5 8l-5 4.5"/></svg>
+                    </button>
+                </div>`;
+            }).join('');
+            inner.querySelectorAll('[data-copy]').forEach((btn) => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    copyDiffHunk(Number(btn.dataset.hunk), btn.dataset.copy);
+                });
+            });
+            inner.querySelectorAll('.diff-arrow-pair').forEach((pair) => {
+                pair.addEventListener('click', (e) => {
+                    if (e.target.closest('[data-copy]')) return;
+                    const hunk = diffState.hunks[Number(pair.dataset.hunk)];
+                    if (!hunk) return;
+                    left.setSelectionRange(hunk.leftStart, Math.max(hunk.leftStart, hunk.leftEnd));
+                    right.setSelectionRange(hunk.rightStart, Math.max(hunk.rightStart, hunk.rightEnd));
+                    updateLineCompare();
+                });
+            });
+            gutter.scrollTop = left.scrollTop;
+        }
+
+        function updateLineCompare() {
+            const batch = window.WriterBatch;
+            const left = document.getElementById('diff-left-edit');
+            const right = document.getElementById('diff-right-edit');
+            const status = document.getElementById('diff-status');
+            if (!batch || !left || !right || !status || !diffState.hunks || !diffState.hunks.length) return;
+            const ignoreCase = document.getElementById('diff-ignore-case').checked;
+            const ignoreSpace = document.getElementById('diff-ignore-space').checked;
+            const html = batch.charCompare(lineAtCursor(left), lineAtCursor(right), ignoreCase, ignoreSpace);
+            const count = `${diffState.hunks.length} difference${diffState.hunks.length === 1 ? '' : 's'} found.`;
+            status.innerHTML = `${escapeHtml(count)} <span class="diff-status-lines">${html}</span>`;
+        }
+
+        function refreshDiffView() {
+            const batch = window.WriterBatch;
+            const left = document.getElementById('diff-left-edit').value;
+            const right = document.getElementById('diff-right-edit').value;
+            const ignoreCase = document.getElementById('diff-ignore-case').checked;
+            const ignoreSpace = document.getElementById('diff-ignore-space').checked;
+            const status = document.getElementById('diff-status');
+            if (!batch) {
+                status.textContent = 'Diff library failed to load.';
+                return;
+            }
+            const result = batch.buildHunks(left, right, ignoreCase, ignoreSpace);
+            diffState.hunks = result.hunks || [];
+            document.getElementById('diff-left-hl').innerHTML = batch.highlightSide(result.parts, 'left');
+            document.getElementById('diff-right-hl').innerHTML = batch.highlightSide(result.parts, 'right');
+            if (result.error) {
+                status.textContent = result.error;
+            } else if (result.identical) {
+                status.textContent = 'These files are identical.';
+            } else {
+                status.textContent = `${diffState.hunks.length} difference${diffState.hunks.length === 1 ? '' : 's'} found.`;
+            }
+            requestAnimationFrame(layoutDiffGutter);
+            updateLineCompare();
+        }
+
+        function scheduleDiffRefresh() {
+            clearTimeout(diffRefreshTimer);
+            diffRefreshTimer = setTimeout(refreshDiffView, 120);
+        }
+
+        function copyDiffHunk(index, direction) {
+            const hunk = diffState.hunks[index];
+            if (!hunk) return;
+            const left = document.getElementById('diff-left-edit');
+            const right = document.getElementById('diff-right-edit');
+            if (direction === 'ltr') {
+                right.value = right.value.slice(0, hunk.rightStart) + hunk.leftText + right.value.slice(hunk.rightEnd);
+            } else {
+                left.value = left.value.slice(0, hunk.leftStart) + hunk.rightText + left.value.slice(hunk.leftEnd);
+            }
+            refreshDiffView();
+        }
+
+        async function openDiffModal(leftPath, rightPath) {
+            hideContextMenu();
+            cancelCompare();
+            if (!window.Diff || !window.WriterBatch) {
+                alert('Diff library failed to load.');
+                return;
+            }
+            try {
+                const [leftText, rightText] = await Promise.all([fetchFileText(leftPath), fetchFileText(rightPath)]);
+                diffState.leftPath = leftPath;
+                diffState.rightPath = rightPath;
+                document.getElementById('diff-left-name').textContent = leftPath;
+                document.getElementById('diff-right-name').textContent = rightPath;
+                document.getElementById('diff-left-edit').value = leftText;
+                document.getElementById('diff-right-edit').value = rightText;
+                const modal = document.getElementById('diff-modal');
+                modal.classList.remove('hidden');
+                modal.classList.add('flex');
+                refreshDiffView();
+                focusFirstDiff();
+            } catch (err) {
+                alert(err.message || 'Could not compare files');
+            }
+        }
+
+        function focusFirstDiff() {
+            const left = document.getElementById('diff-left-edit');
+            const right = document.getElementById('diff-right-edit');
+            const hunk = (diffState.hunks || [])[0];
+            if (left) left.setSelectionRange(hunk ? hunk.leftStart : 0, hunk ? hunk.leftStart : 0);
+            if (right) right.setSelectionRange(hunk ? hunk.rightStart : 0, hunk ? hunk.rightStart : 0);
+            updateLineCompare();
+        }
+
+        let compareSource = null;
+
+        function beginCompareWith(path) {
+            compareSource = path;
+            const banner = document.getElementById('compare-banner');
+            const name = document.getElementById('compare-banner-name');
+            if (name) name.textContent = fileNameOf(path);
+            if (banner) banner.classList.remove('hidden');
+        }
+
+        function cancelCompare() {
+            compareSource = null;
+            const banner = document.getElementById('compare-banner');
+            if (banner) banner.classList.add('hidden');
+        }
+
+        function closeDiffModal() {
+            const modal = document.getElementById('diff-modal');
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+        }
+
+        async function saveDiffSide(side) {
+            const path = side === 'left' ? diffState.leftPath : diffState.rightPath;
+            const content = document.getElementById(side === 'left' ? 'diff-left-edit' : 'diff-right-edit').value;
+            const res = await fetch('/api/file', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ vault: currentVault(), file_path: path, content }),
+            });
+            if (!res.ok) {
+                alert(`Could not save ${path}`);
+                return;
+            }
+            if (currentFilePath === path) {
+                editor.value = content;
+                lastSavedContent = content;
+                setSaveStatus('Saved', 'text-emerald-400');
+                updateEditorStats(true);
+            }
+        }
+
+        function renderMergeList() {
+            const list = document.getElementById('merge-file-list');
+            list.innerHTML = mergeOrder.map((item, idx) => `
+                <li class="merge-row${item.included ? '' : ' is-off'}" data-idx="${idx}">
+                    <div class="merge-reorder" role="group" aria-label="Reorder">
+                        <button type="button" class="merge-move" data-move="-1" aria-label="Move up">
+                            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M3.5 10.5 8 5.5l4.5 5"/></svg>
+                        </button>
+                        <button type="button" class="merge-move" data-move="1" aria-label="Move down">
+                            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M3.5 5.5 8 10.5l4.5-5"/></svg>
+                        </button>
+                    </div>
+                    <span title="${escapeAttr(item.path)}">${escapeHtml(item.path)}</span>
+                    <button type="button" class="preview-switch merge-switch${item.included ? ' is-on' : ''}" role="switch" aria-checked="${item.included ? 'true' : 'false'}" data-toggle="${idx}" title="${item.included ? 'Include in merge' : 'Skip this file'}">
+                        <span class="preview-switch-control" aria-hidden="true">
+                            <span class="preview-switch-track"></span>
+                            <span class="preview-switch-thumb"></span>
+                        </span>
+                    </button>
+                </li>
+            `).join('');
+            list.querySelectorAll('[data-move]').forEach((btn) => {
+                btn.addEventListener('click', () => {
+                    const idx = Number(btn.closest('[data-idx]').dataset.idx);
+                    const next = idx + Number(btn.dataset.move);
+                    if (next < 0 || next >= mergeOrder.length) return;
+                    const swap = mergeOrder[idx];
+                    mergeOrder[idx] = mergeOrder[next];
+                    mergeOrder[next] = swap;
+                    renderMergeList();
+                });
+            });
+            list.querySelectorAll('[data-toggle]').forEach((btn) => {
+                btn.addEventListener('click', () => {
+                    const idx = Number(btn.dataset.toggle);
+                    mergeOrder[idx].included = !mergeOrder[idx].included;
+                    renderMergeList();
+                });
+            });
+        }
+
+        function openMergeModal(selected) {
+            hideContextMenu();
+            mergeOrder = mergeFilesFromSelection(selected).map((path) => ({ path, included: true }));
+            if (!mergeOrder.length) {
+                alert('No files to merge.');
+                return;
+            }
+            const folder = selected.find((s) => s.type === 'folder');
+            const defaultName = folder ? `${fileNameOf(folder.path)}-merged.md` : 'merged.md';
+            document.getElementById('merge-filename').value = defaultName;
+            renderMergeList();
+            const modal = document.getElementById('merge-modal');
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        }
+
+        function closeMergeModal() {
+            const modal = document.getElementById('merge-modal');
+            if (isModalBusy(modal)) return;
+            setModalBusy(modal, false);
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+            mergeOrder = [];
+        }
+
+        async function confirmMergeModal() {
+            const modal = document.getElementById('merge-modal');
+            if (isModalBusy(modal)) return;
+            const rawName = document.getElementById('merge-filename').value.trim();
+            if (!rawName) {
+                alert('Name the merged file.');
+                return;
+            }
+            const included = mergeOrder.filter((item) => item.included).map((item) => item.path);
+            if (!included.length) {
+                alert('Turn on at least one file to merge.');
+                return;
+            }
+            setModalBusy(modal, true, 'Merging…');
+            try {
+                const parts = [];
+                for (const path of included) {
+                    parts.push(await fetchFileText(path));
+                }
+                const content = window.WriterBatch && window.WriterBatch.mergeMarkdown
+                    ? window.WriterBatch.mergeMarkdown(parts)
+                    : parts.join('\n\n');
+                const hasFolder = rawName.includes('/');
+                const folder = hasFolder ? folderOf(rawName) : '';
+                const name = fileNameOf(rawName);
+                const result = await postFileOp('/api/file/create', {
+                    vault: currentVault(),
+                    folder,
+                    name,
+                    content,
+                });
+                if (!result) return;
+                setModalBusy(modal, false);
+                closeMergeModal();
+                await loadFiles();
+                await openFile(result.filename);
+            } finally {
+                if (modal.dataset.busy === '1') setModalBusy(modal, false);
+            }
         }
 
         function hideContextMenu() {
@@ -1515,36 +2209,82 @@
             }
         }
 
+        function treeContextItems(selected, refreshItem, saveItem, sortItem) {
+            const files = selected.filter((s) => s.type === 'file');
+            const folders = selected.filter((s) => s.type === 'folder');
+            const items = [];
+            if (selected.length === 1 && folders.length === 1) {
+                items.push({ label: 'New file', run: () => createNewFile(folders[0].path) });
+                items.push({ label: 'New folder', run: () => createNewFolder(folders[0].path) });
+            }
+            if (selected.length === 1 && files.length === 1) items.push(saveItem);
+            items.push(refreshItem);
+            if (selected.length === 1) {
+                items.push({ label: 'Rename', run: () => beginTreeRename(selected[0].path, selected[0].type) });
+            }
+            if (files.length) {
+                items.push({
+                    label: files.length > 1 ? `Copy ${files.length} to…` : 'Copy to…',
+                    run: () => openFolderModal('copy', files.map((f) => f.path)),
+                });
+                items.push({
+                    label: files.length > 1 ? `Move ${files.length} to…` : 'Move to…',
+                    run: () => openFolderModal('move', files.map((f) => f.path)),
+                });
+                items.push({
+                    label: files.length > 1 ? `Download ${files.length} files` : 'Download',
+                    run: () => downloadFiles(files.map((f) => f.path)),
+                });
+            }
+            if (files.length === 1) {
+                items.push({ label: 'History', run: () => openHistory(files[0].path) });
+                items.push({ label: 'Compare with…', run: () => beginCompareWith(files[0].path) });
+            }
+            if (files.length === 2) {
+                items.push({ label: 'Compare…', run: () => openDiffModal(files[0].path, files[1].path) });
+            }
+            if (files.length >= 2 || folders.length >= 1) {
+                items.push({ label: 'Export merge…', run: () => openMergeModal(selected) });
+            }
+            items.push({
+                label: selected.length > 1 ? `Delete ${selected.length} items` : 'Delete',
+                run: () => deleteSelected(selected),
+                danger: true,
+            });
+            items.push({ separator: true }, sortItem);
+            return items;
+        }
+
         function showContextMenu(x, y, type, path) {
+            if (!contextMenu) return;
             const refreshItem = { label: 'Refresh files', run: () => loadFiles() };
             const saveItem = { label: 'Save now', run: () => saveNow() };
             const sortItem = treeSortMenuItem();
             const items = type === 'tree'
-                ? [{ label: 'New file', run: () => createNewFile('') }, refreshItem, { separator: true }, sortItem]
-                : type === 'folder'
-                    ? [
-                        { label: 'New file', run: () => createNewFile(path) },
-                        refreshItem,
-                        { label: 'Rename', run: () => beginTreeRename(path, 'folder') },
-                        { label: 'Delete', run: () => deletePath(path, 'folder'), danger: true },
-                        { separator: true },
-                        sortItem,
-                    ]
-                    : type === 'editor'
+                ? [
+                    { label: 'New file', run: () => createNewFile('') },
+                    { label: 'New folder', run: () => createNewFolder('') },
+                    refreshItem,
+                    { separator: true },
+                    sortItem,
+                ]
+                : type === 'editor'
                     ? [
                         saveItem,
                         { label: 'Rename', run: () => startInlineRename() },
+                        ...(currentFilePath
+                            ? [
+                                { label: 'History', run: () => openHistory(currentFilePath) },
+                                { label: 'Download', run: () => downloadFiles([currentFilePath]) },
+                            ]
+                            : []),
                     ]
-                    : [
-                        saveItem,
-                        refreshItem,
-                        { label: 'Rename', run: () => beginTreeRename(path, 'file') },
-                        { label: 'Copy to…', run: () => openFolderModal('copy', path) },
-                        { label: 'Move to…', run: () => openFolderModal('move', path) },
-                        { label: 'Delete', run: () => deletePath(path, 'file'), danger: true },
-                        { separator: true },
-                        sortItem,
-                    ];
+                    : treeContextItems(contextSelection(type, path), refreshItem, saveItem, sortItem);
+            showMenuAt(x, y, items);
+        }
+
+        function showMenuAt(x, y, items) {
+            if (!contextMenu) return;
             contextMenu.innerHTML = items.map((item, idx) => renderMenuItem(item, idx)).join('');
             contextMenu.querySelectorAll('[data-idx]').forEach((btn) => {
                 btn.addEventListener('click', (e) => {
@@ -1576,6 +2316,7 @@
             const maxY = window.innerHeight - contextMenu.offsetHeight - 8;
             contextMenu.style.left = `${Math.max(8, Math.min(x, maxX))}px`;
             contextMenu.style.top = `${Math.max(8, Math.min(y, maxY))}px`;
+            contextMenu.dataset.justOpened = '1';
         }
 
         function beginTreeRename(path, type) {
@@ -1618,7 +2359,15 @@
             input.select();
         }
 
+        treeContainer.addEventListener('mousedown', (e) => {
+            if (e.shiftKey && e.target.closest('.tree-row')) e.preventDefault();
+        });
+
         treeContainer.addEventListener('click', (e) => {
+            if (suppressClick) {
+                suppressClick = false;
+                return;
+            }
             const menuBtn = e.target.closest('.tree-menu-btn');
             if (menuBtn) {
                 e.preventDefault();
@@ -1631,8 +2380,18 @@
             }
             const row = e.target.closest('.tree-row');
             if (!row || e.target.closest('.tree-rename-input')) return;
-            if (row.dataset.type === 'folder') toggleFolder(row);
-            if (row.dataset.type === 'file') openFile(row.dataset.path);
+            const multi = e.ctrlKey || e.metaKey;
+            const range = e.shiftKey;
+            if (compareSource && row.dataset.type === 'file' && !multi && !range && row.dataset.path !== compareSource) {
+                const source = compareSource;
+                const other = row.dataset.path;
+                cancelCompare();
+                openDiffModal(source, other);
+                return;
+            }
+            if (row.dataset.type === 'folder' && !multi && !range) toggleFolder(row);
+            applyTreeClick(row, { multi, range });
+            if (row.dataset.type === 'file' && !multi && !range) openFile(row.dataset.path);
         });
 
         treeContainer.addEventListener('contextmenu', (e) => {
@@ -1648,6 +2407,13 @@
             if (!row) return;
             const touch = e.changedTouches[0];
             longPressTimer = setTimeout(() => {
+                suppressClick = true;
+                const key = treeSelKey(row.dataset.type, row.dataset.path);
+                if (!treeSelection.has(key)) {
+                    treeSelection.set(key, { path: row.dataset.path, type: row.dataset.type });
+                    lastTreeAnchor = { path: row.dataset.path, type: row.dataset.type };
+                    paintTreeSelection();
+                }
                 showContextMenu(touch.clientX, touch.clientY, row.dataset.type, row.dataset.path);
             }, 500);
         });
@@ -1697,9 +2463,95 @@
         });
 
         document.addEventListener('click', (e) => {
+            if (!contextMenu) return;
+            if (contextMenu.dataset.justOpened) {
+                delete contextMenu.dataset.justOpened;
+                return;
+            }
             if (!contextMenu.contains(e.target)) hideContextMenu();
+            if (!e.target.closest('.outline-nav')) hideOutlineMenu();
         });
         window.addEventListener('resize', updateFilenameLabel);
+
+        function documentOutline(text) {
+            const source = String(text || '');
+            const lines = source.split('\n');
+            const headingRe = /^(#{1,6})(?!#)[ \t]*(.+?)(?:[ \t]+#+)?[ \t]*$/;
+            const items = [];
+            let offset = 0;
+            lines.forEach((line, i) => {
+                const match = headingRe.exec(line);
+                if (match) {
+                    const title = (match[2] || '').trim();
+                    if (title) {
+                        items.push({
+                            level: match[1].length,
+                            title,
+                            index: offset,
+                            end: offset + line.length,
+                        });
+                    }
+                }
+                offset += line.length + (i < lines.length - 1 ? 1 : 0);
+            });
+            return items;
+        }
+
+        function hideOutlineMenu() {
+            const menu = document.getElementById('outline-menu');
+            const btn = document.getElementById('outline-toggle-btn');
+            if (!menu || !btn) return;
+            menu.classList.add('hidden');
+            btn.setAttribute('aria-expanded', 'false');
+        }
+
+        function toggleOutlineMenu() {
+            const menu = document.getElementById('outline-menu');
+            const open = menu.classList.contains('hidden');
+            if (!open) {
+                hideOutlineMenu();
+                return;
+            }
+            hideContextMenu();
+            const items = documentOutline(editor.value);
+            if (!items.length) {
+                menu.innerHTML = '<div class="outline-empty">No headings in this file</div>';
+            } else {
+                menu.innerHTML = items.map((item, idx) => (
+                    `<button type="button" role="option" data-idx="${idx}" class="outline-item lvl-${item.level}">${escapeHtml(item.title)}</button>`
+                )).join('');
+                menu.querySelectorAll('.outline-item').forEach((btn) => {
+                    btn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        jumpToOutlineItem(items[Number(btn.dataset.idx)]);
+                    });
+                });
+            }
+            menu.classList.remove('hidden');
+            document.getElementById('outline-toggle-btn').setAttribute('aria-expanded', 'true');
+        }
+
+        function scrollTextareaTo(index) {
+            const style = window.getComputedStyle(editor);
+            let lineHeight = parseFloat(style.lineHeight);
+            if (!lineHeight || Number.isNaN(lineHeight)) {
+                lineHeight = parseFloat(style.fontSize) * 1.45;
+            }
+            const paddingTop = parseFloat(style.paddingTop) || 0;
+            const before = editor.value.slice(0, index);
+            const line = before.split('\n').length - 1;
+            editor.scrollTop = Math.max(0, paddingTop + line * lineHeight - editor.clientHeight * 0.28);
+        }
+
+        function jumpToOutlineItem(item) {
+            if (!item) return;
+            hideOutlineMenu();
+            if (previewOn) toggleMarkdownPreview(false);
+            editor.focus();
+            const end = Math.min(item.end, editor.value.length);
+            editor.setSelectionRange(item.index, end);
+            scrollTextareaTo(item.index);
+        }
 
         function looksLikeTodoChat(prompt) {
             if (/^\/todo\b/i.test(prompt)) return true;
@@ -1725,22 +2577,133 @@
             return document.getElementById(channel === 'todos' ? 'guppy-messages' : 'chat-messages');
         }
 
-        function appendChatBubble(channel, role, text, { loadingId = null, error = false } = {}) {
-            const log = chatLogEl(channel);
+        function setChatAwaiting(waiting) {
+            if (!chatInput) return;
+            chatInput.dataset.awaiting = waiting ? '1' : '';
+            chatInput.placeholder = composerPlaceholder('writing');
+        }
+
+        const bubbleMeta = new WeakMap();
+        const BUBBLE_MENU_BTN = `<button type="button" class="tree-menu-btn bubble-menu-btn" title="Actions" aria-label="Actions"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.75h.01M12 12h.01M12 17.25h.01"/></svg></button>`;
+
+        function ensureBubbleMenu(wrap) {
+            if (!wrap || wrap.querySelector('.bubble-menu-btn')) return;
+            const header = document.createElement('div');
+            header.className = 'bubble-head';
+            const name = wrap.querySelector(':scope > span');
+            if (name) header.appendChild(name);
+            header.insertAdjacentHTML('beforeend', BUBBLE_MENU_BTN);
+            const body = wrap.querySelector('[data-bubble-body]');
+            wrap.insertBefore(header, body || wrap.firstChild);
+        }
+
+        function isChatErrorText(text) {
+            const value = String(text || '');
+            return value.startsWith('Error processing request:') || value.startsWith('Failed to send message:');
+        }
+
+        function paintChatBubble(wrap, channel, role, text, { error = false, clarification = false, retry = '' } = {}) {
             const isUser = role === 'user';
-            const wrap = document.createElement('div');
-            if (loadingId) wrap.id = loadingId;
-            wrap.className = error
+            wrap.classList.add('chat-bubble');
+            wrap.className = 'chat-bubble ' + (error
                 ? 'bg-red-900/40 p-3 rounded-lg max-w-xl text-sm border border-red-700'
                 : (isUser
                     ? 'bg-indigo-900/50 border border-indigo-700/60 p-3 rounded-lg max-w-xl ml-auto text-sm'
-                    : 'bg-gray-700/60 p-3 rounded-lg max-w-xl text-sm border border-gray-600');
-            const name = isUser ? 'You' : (channel === 'todos' ? 'Guppy' : 'Gemini');
-            const nameClass = isUser ? 'text-indigo-300' : (channel === 'todos' ? 'text-emerald-400' : 'text-indigo-400');
-            wrap.innerHTML = `<span class="block text-xs font-semibold ${nameClass} mb-1">${name}</span><div class="whitespace-pre-wrap ${error ? 'text-red-200' : (isUser ? '' : 'text-gray-200')}">${escapeHtml(text)}</div>`;
+                    : 'bg-gray-700/60 p-3 rounded-lg max-w-xl text-sm border border-gray-600'));
+            const name = error ? 'System Error' : (isUser ? 'You' : (channel === 'todos' ? 'Guppy' : 'Gemini'));
+            const nameClass = error ? 'text-red-400' : (isUser ? 'text-indigo-300' : (channel === 'todos' ? 'text-emerald-400' : 'text-indigo-400'));
+            const bodyClass = error ? 'text-red-200' : (isUser ? '' : 'text-gray-200');
+            wrap.innerHTML = `<div class="bubble-head"><span class="block text-xs font-semibold ${nameClass} mb-1">${name}</span>${BUBBLE_MENU_BTN}</div><div data-bubble-body class="whitespace-pre-wrap ${bodyClass}">${escapeHtml(text)}</div>`;
+            if (clarification) {
+                const note = document.createElement('p');
+                note.className = 'mt-2 text-[11px] text-amber-300';
+                note.textContent = 'Waiting for your answer';
+                wrap.appendChild(note);
+            }
+            bubbleMeta.set(wrap, { channel, error: !!error, retry: retry || '' });
+        }
+
+        function appendChatBubble(channel, role, text, { loadingId = null, error = false, clarification = false, retry = '' } = {}) {
+            const log = chatLogEl(channel);
+            const wrap = document.createElement('div');
+            if (loadingId) wrap.id = loadingId;
+            paintChatBubble(wrap, channel, role, text, { error, clarification, retry });
             log.appendChild(wrap);
             log.scrollTop = log.scrollHeight;
             return wrap;
+        }
+
+        async function copyBubbleText(text) {
+            const value = String(text || '');
+            try {
+                await navigator.clipboard.writeText(value);
+            } catch (err) {
+                const area = document.createElement('textarea');
+                area.value = value;
+                area.setAttribute('readonly', '');
+                area.style.position = 'fixed';
+                area.style.left = '-9999px';
+                document.body.appendChild(area);
+                area.select();
+                document.execCommand('copy');
+                area.remove();
+            }
+        }
+
+        function openBubbleMenu(x, y, wrap) {
+            const body = wrap.querySelector('[data-bubble-body]');
+            const text = body ? body.textContent : wrap.textContent;
+            const meta = bubbleMeta.get(wrap) || {};
+            const items = [{ label: 'Copy', run: () => copyBubbleText(text) }];
+            if (meta.error && meta.retry) {
+                items.push({ label: 'Retry', run: () => submitChat(meta.channel, meta.retry) });
+            }
+            showMenuAt(x, y, items);
+        }
+
+        function bindBubbleMenu(log) {
+            if (!log || log.dataset.bubbleMenu === '1') return;
+            log.dataset.bubbleMenu = '1';
+            let timer = null;
+            let start = null;
+            const cancel = () => {
+                clearTimeout(timer);
+                timer = null;
+            };
+            log.querySelectorAll('.chat-bubble').forEach(ensureBubbleMenu);
+            log.addEventListener('click', (e) => {
+                const menuBtn = e.target.closest('.bubble-menu-btn');
+                if (!menuBtn || !log.contains(menuBtn)) return;
+                e.preventDefault();
+                e.stopPropagation();
+                const bubble = menuBtn.closest('.chat-bubble');
+                if (!bubble) return;
+                const rect = menuBtn.getBoundingClientRect();
+                openBubbleMenu(rect.right, rect.bottom, bubble);
+            });
+            log.addEventListener('contextmenu', (e) => {
+                const bubble = e.target.closest('.chat-bubble');
+                if (!bubble || !log.contains(bubble)) return;
+                e.preventDefault();
+                openBubbleMenu(e.clientX, e.clientY, bubble);
+            });
+            log.addEventListener('touchstart', (e) => {
+                if (e.target.closest('.bubble-menu-btn')) return;
+                const bubble = e.target.closest('.chat-bubble');
+                if (!bubble) return;
+                const touch = e.changedTouches[0];
+                start = { x: touch.clientX, y: touch.clientY, bubble };
+                cancel();
+                timer = setTimeout(() => {
+                    if (start) openBubbleMenu(start.x, start.y, start.bubble);
+                }, 500);
+            }, { passive: true });
+            log.addEventListener('touchend', cancel);
+            log.addEventListener('touchmove', (e) => {
+                if (!start || !e.changedTouches[0]) return;
+                const touch = e.changedTouches[0];
+                if (Math.abs(touch.clientX - start.x) > 8 || Math.abs(touch.clientY - start.y) > 8) cancel();
+            }, { passive: true });
         }
 
         function renderChatHistory(channel, history) {
@@ -1750,39 +2713,58 @@
                 : 'Welcome to WriterSystem. Send a message below to chat with Gemini or process text.';
             const welcomeName = channel === 'todos' ? 'Guppy' : 'System';
             const welcomeColor = channel === 'todos' ? 'text-emerald-400' : 'text-indigo-400';
-            log.innerHTML = `<div class="bg-gray-700/60 p-3 rounded-lg max-w-xl text-sm border border-gray-600">
-                <span class="block text-xs font-semibold ${welcomeColor} mb-1">${welcomeName}</span>
-                ${escapeHtml(welcome)}
+            log.innerHTML = `<div class="chat-bubble bg-gray-700/60 p-3 rounded-lg max-w-xl text-sm border border-gray-600">
+                <div class="bubble-head"><span class="block text-xs font-semibold ${welcomeColor} mb-1">${welcomeName}</span>${BUBBLE_MENU_BTN}</div>
+                <div data-bubble-body>${escapeHtml(welcome)}</div>
             </div>`;
+            let lastUser = '';
             (history || []).forEach(msg => {
-                if (msg.role === 'user' || msg.role === 'model') {
-                    appendChatBubble(channel, msg.role === 'model' ? 'model' : 'user', msg.text || '');
-                }
+                if (msg.role !== 'user' && msg.role !== 'model') return;
+                if (msg.role === 'user') lastUser = msg.text || '';
+                const error = msg.role === 'model' && isChatErrorText(msg.text);
+                appendChatBubble(channel, msg.role === 'model' ? 'model' : 'user', msg.text || '', {
+                    clarification: channel === 'writing' && !!msg.clarification && !error,
+                    error,
+                    retry: error ? lastUser : '',
+                });
             });
+            if (channel === 'writing') {
+                setChatAwaiting((history || []).some(msg => msg.clarification));
+            }
         }
 
+        const chatHistoryGeneration = { writing: 0, todos: 0 };
+
         async function loadChatHistory(channel) {
+            const key = channel === 'todos' ? 'todos' : 'writing';
+            const generation = ++chatHistoryGeneration[key];
+            const vault = currentVault();
             try {
-                const res = await fetch(`/api/chat/history?vault=${encodeURIComponent(currentVault())}&channel=${encodeURIComponent(channel)}`);
+                const res = await fetch(`/api/chat/history?vault=${encodeURIComponent(vault)}&channel=${encodeURIComponent(key)}`);
+                if (generation !== chatHistoryGeneration[key] || vault !== currentVault()) return;
                 if (!res.ok) return;
                 const data = await res.json();
-                renderChatHistory(channel, data.history || []);
+                if (generation !== chatHistoryGeneration[key] || vault !== currentVault()) return;
+                renderChatHistory(key, data.history || []);
             } catch (e) {
                 console.error('Failed to load chat history', e);
             }
         }
 
-        async function submitChat(forcedChannel) {
+        async function submitChat(forcedChannel, promptOverride) {
             const requested = forcedChannel === 'todos' ? 'todos' : 'writing';
             const composer = inputForChannel(requested);
-            const prompt = (composer && composer.value.trim()) || '';
+            const explicit = promptOverride != null;
+            const prompt = (explicit ? String(promptOverride) : ((composer && composer.value) || '')).trim();
             if (!prompt) return;
             const vault = currentVault();
-            const todoIntent = requested === 'todos' || looksLikeTodoChat(prompt);
-            const channel = todoIntent ? 'todos' : 'writing';
+            const todoIntent = !explicit && (requested === 'todos' || looksLikeTodoChat(prompt));
+            const channel = explicit ? requested : (todoIntent ? 'todos' : 'writing');
             const sendBtn = sendButtonForChannel(channel);
+            const wasAwaiting = channel === 'writing' && !!(chatInput && chatInput.dataset.awaiting === '1');
 
-            resetComposer(composer);
+            if (!explicit) resetComposer(composer);
+            if (channel === 'writing') setChatAwaiting(false);
 
             if (channel === 'todos') {
                 if (activeTab !== 'todos') switchTab('todos', { skipHistory: true, skipLoad: true });
@@ -1817,9 +2799,13 @@
                 if (!res.ok) throw new Error(`Server returned ${res.status}`);
                 const data = await res.json();
                 const reply = data.response || data.message || JSON.stringify(data);
+                const replyFailed = isChatErrorText(reply);
                 if (loadingEl) {
-                    loadingEl.classList.remove('animate-pulse');
-                    loadingEl.querySelector('div.whitespace-pre-wrap').textContent = reply;
+                    paintChatBubble(loadingEl, channel, 'model', reply, {
+                        error: replyFailed,
+                        clarification: channel === 'writing' && !!data.clarification && !replyFailed,
+                        retry: replyFailed ? prompt : '',
+                    });
                 }
                 if (data.channel === 'todos' && Array.isArray(data.items)) {
                     todoItems = data.items.map(normalizeTodoItem);
@@ -1827,7 +2813,15 @@
                     renderTodos();
                     setTodoSaveStatus('Saved');
                 }
-                if (data.updated_content) {
+                if (channel === 'writing' && data.clarification && !replyFailed) {
+                    setChatAwaiting(true);
+                } else if (channel === 'writing') {
+                    setChatAwaiting(false);
+                    if (data.new_file && data.new_file.content) {
+                        openExtractModal(data.new_file);
+                    }
+                }
+                if (data.updated_content && !(channel === 'writing' && data.clarification && !replyFailed)) {
                     editor.value = data.updated_content;
                     lastSavedContent = currentFilePath ? data.updated_content : null;
                     setSaveStatus('Unsaved', 'text-amber-400');
@@ -1835,14 +2829,64 @@
                     await autosaveNow();
                 }
             } catch (e) {
+                if (channel === 'writing' && wasAwaiting) setChatAwaiting(true);
                 if (loadingEl) {
-                    loadingEl.className = 'bg-red-900/40 p-3 rounded-lg max-w-xl text-sm border border-red-700';
-                    loadingEl.innerHTML = `<span class="block text-xs font-semibold text-red-400 mb-1">System Error</span><div class="text-red-200">Failed to send message: ${escapeHtml(e.message)}</div>`;
+                    paintChatBubble(loadingEl, channel, 'model', `Failed to send message: ${e.message}`, {
+                        error: true,
+                        retry: prompt,
+                    });
                 }
             } finally {
                 if (sendBtn) sendBtn.disabled = false;
                 const log = chatLogEl(channel);
                 log.scrollTop = log.scrollHeight;
+            }
+        }
+
+        function openExtractModal(proposal) {
+            pendingExtractFolder = folderOf(currentFilePath);
+            document.getElementById('extract-filename').value = (proposal && proposal.name) || 'extract.md';
+            document.getElementById('extract-content').value = (proposal && proposal.content) || '';
+            const modal = document.getElementById('extract-modal');
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+            document.getElementById('extract-filename').focus();
+        }
+
+        function closeExtractModal() {
+            const modal = document.getElementById('extract-modal');
+            if (isModalBusy(modal)) return;
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+        }
+
+        async function confirmExtractModal() {
+            const modal = document.getElementById('extract-modal');
+            if (isModalBusy(modal)) return;
+            const name = fileNameOf(document.getElementById('extract-filename').value.trim());
+            const content = document.getElementById('extract-content').value;
+            if (!name) {
+                alert('Name the new file.');
+                return;
+            }
+            setModalBusy(modal, true, 'Creating file…');
+            try {
+                if (editor.value !== lastSavedContent || (!currentFilePath && editor.value)) {
+                    await autosaveNow();
+                }
+                const result = await postFileOp('/api/file/create', {
+                    vault: currentVault(),
+                    folder: pendingExtractFolder,
+                    name,
+                    content,
+                });
+                if (!result) return;
+                setModalBusy(modal, false);
+                closeExtractModal();
+                await loadFiles();
+                await openFile(result.filename);
+            } finally {
+                if (modal.dataset.busy === '1') setModalBusy(modal, false);
             }
         }
 
@@ -2013,20 +3057,267 @@
                 .replace(/</g, '&lt;');
         }
 
+        function openPasswordModal() {
+            const modal = document.getElementById('password-modal');
+            const message = document.getElementById('password-message');
+            message.textContent = 'Other signed-in browsers are signed out when this saves.';
+            message.className = 'text-xs text-gray-400 mb-3';
+            document.getElementById('password-form').reset();
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+            document.getElementById('pw-current').focus();
+        }
+
+        function closePasswordModal() {
+            const modal = document.getElementById('password-modal');
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+        }
+
+        let historyPath = '';
+        let historyRev = '';
+        let historyRows = [];
+
+        function formatHistoryWhen(iso) {
+            const date = new Date(iso);
+            if (Number.isNaN(date.getTime())) return iso || '';
+            return date.toLocaleString();
+        }
+
+        function closeHistory() {
+            const modal = document.getElementById('history-modal');
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+        }
+
+        async function openHistory(path) {
+            if (!path) {
+                setSaveStatus('Open a file first', 'text-amber-400');
+                return;
+            }
+            historyPath = path;
+            historyRev = '';
+            document.getElementById('history-path').textContent = path;
+            document.getElementById('history-text').textContent = '';
+            document.getElementById('history-label').value = '';
+            document.getElementById('history-status').textContent = '';
+            document.getElementById('history-list').innerHTML = '';
+            const modal = document.getElementById('history-modal');
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+            await loadHistoryList();
+        }
+
+        async function loadHistoryList() {
+            const res = await fetch(`/api/history?vault=${encodeURIComponent(currentVault())}&path=${encodeURIComponent(historyPath)}`);
+            if (res.status === 401) {
+                window.location.href = '/login';
+                return;
+            }
+            const data = await res.json().catch(() => ({}));
+            const status = document.getElementById('history-status');
+            const list = document.getElementById('history-list');
+            if (!res.ok) {
+                status.textContent = typeof data.detail === 'string' ? data.detail : 'Could not load history';
+                return;
+            }
+            historyRows = data.commits || [];
+            const rows = historyRows;
+            if (!rows.length) {
+                list.innerHTML = '<p class="px-3 py-3 text-xs text-gray-400">No snapshots yet. A snapshot is taken every 15 minutes after the file changes.</p>';
+                return;
+            }
+            list.innerHTML = rows.map((row) => `
+                <button type="button" class="history-version${row.rev === historyRev ? ' selected' : ''}" data-rev="${escapeAttr(row.rev)}" role="option">
+                    <span>${escapeHtml(row.label || 'Snapshot')}</span>
+                    <span class="history-when">${escapeHtml(formatHistoryWhen(row.committed_at))}</span>
+                </button>
+            `).join('');
+            list.querySelectorAll('.history-version').forEach((btn) => {
+                btn.addEventListener('click', () => selectHistoryVersion(btn.dataset.rev));
+            });
+            if (!historyRev || !rows.some((row) => row.rev === historyRev)) {
+                await selectHistoryVersion(rows[0].rev);
+            }
+        }
+
+        async function selectHistoryVersion(rev) {
+            historyRev = rev;
+            document.querySelectorAll('.history-version').forEach((btn) => {
+                btn.classList.toggle('selected', btn.dataset.rev === rev);
+            });
+            const res = await fetch(`/api/history/content?vault=${encodeURIComponent(currentVault())}&path=${encodeURIComponent(historyPath)}&rev=${encodeURIComponent(rev)}`);
+            if (res.status === 401) {
+                window.location.href = '/login';
+                return;
+            }
+            const data = await res.json().catch(() => ({}));
+            const status = document.getElementById('history-status');
+            if (!res.ok) {
+                status.textContent = typeof data.detail === 'string' ? data.detail : 'Could not read this version';
+                return;
+            }
+            document.getElementById('history-text').textContent = data.content || '';
+            const row = historyRows.find((item) => item.rev === rev);
+            document.getElementById('history-label').value = row && row.label ? row.label : '';
+            status.textContent = '';
+        }
+
+        async function renameHistoryLabel() {
+            if (!historyRev) return;
+            const name = document.getElementById('history-label').value;
+            const res = await fetch('/api/history/label', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    vault: currentVault(),
+                    path: historyPath,
+                    rev: historyRev,
+                    name,
+                }),
+            });
+            if (res.status === 401) {
+                window.location.href = '/login';
+                return;
+            }
+            const data = await res.json().catch(() => ({}));
+            const status = document.getElementById('history-status');
+            if (!res.ok) {
+                status.textContent = typeof data.detail === 'string' ? data.detail : 'Could not rename this version';
+                return;
+            }
+            status.textContent = data.label ? 'Label saved.' : 'Label cleared.';
+            document.getElementById('history-label').value = data.label || '';
+            const keep = historyRev;
+            await loadHistoryList();
+            historyRev = keep;
+            document.getElementById('history-status').textContent = data.label ? 'Label saved.' : 'Label cleared.';
+        }
+
+        async function restoreHistoryVersion() {
+            if (!historyRev) return;
+            const dirty = currentFilePath === historyPath && editor.value !== lastSavedContent;
+            const question = dirty
+                ? 'This file has unsaved edits. Replace it with this version?'
+                : 'Replace the current file with this version?';
+            if (!window.confirm(question)) return;
+            const res = await fetch('/api/history/restore', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    vault: currentVault(),
+                    path: historyPath,
+                    rev: historyRev,
+                }),
+            });
+            if (res.status === 401) {
+                window.location.href = '/login';
+                return;
+            }
+            const data = await res.json().catch(() => ({}));
+            const status = document.getElementById('history-status');
+            if (!res.ok) {
+                status.textContent = typeof data.detail === 'string' ? data.detail : 'Could not restore this version';
+                return;
+            }
+            if (currentFilePath === historyPath) {
+                setCurrentFile(historyPath, data.content, { saved: true });
+            } else {
+                await openFile(historyPath);
+            }
+            switchTab('editor');
+            status.textContent = 'Restored into the file.';
+        }
+
+        async function submitPasswordChange(event) {
+            event.preventDefault();
+            const message = document.getElementById('password-message');
+            const body = {
+                current: document.getElementById('pw-current').value,
+                next: document.getElementById('pw-next').value,
+                confirm: document.getElementById('pw-confirm').value,
+            };
+            const res = await fetch('/api/password', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+            });
+            if (res.status === 401) {
+                window.location.href = '/login';
+                return;
+            }
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                message.textContent = typeof data.detail === 'string' ? data.detail : 'Could not change the password';
+                message.className = 'text-xs text-red-300 mb-3';
+                return;
+            }
+            message.textContent = 'Saved';
+            message.className = 'text-xs text-green-300 mb-3';
+            document.getElementById('password-form').reset();
+        }
+
         document.addEventListener('DOMContentLoaded', () => {
+            const header = document.getElementById('app-header');
+            const syncHeaderHeight = () => {
+                if (!header) return;
+                document.documentElement.style.setProperty('--app-header-h', `${header.offsetHeight}px`);
+            };
+            syncHeaderHeight();
+            if (window.ResizeObserver && header) new ResizeObserver(syncHeaderHeight).observe(header);
+            window.addEventListener('orientationchange', () => setTimeout(syncHeaderHeight, 200));
+            bindBubbleMenu(document.getElementById('chat-messages'));
+            bindBubbleMenu(document.getElementById('guppy-messages'));
+            syncComposerPlaceholders();
             loadVaults();
             updateFilenameLabel();
             applyGuppyPane();
             applyFilesPane();
             placeConversationPane();
-            if (isLandscapeChat()) loadChatHistory('writing');
             landscapeChatQuery.addEventListener('change', placeConversationPane);
             syncTodoFilterButtons();
             updateEditorStats(true);
+            ['diff-left-edit', 'diff-right-edit'].forEach((id) => {
+                const ta = document.getElementById(id);
+                const hl = document.getElementById(id.replace('-edit', '-hl'));
+                ta.addEventListener('scroll', () => {
+                    if (diffScrollLock) return;
+                    diffScrollLock = true;
+                    const left = document.getElementById('diff-left-edit');
+                    const right = document.getElementById('diff-right-edit');
+                    const other = ta === left ? right : left;
+                    const otherHl = document.getElementById(other.id.replace('-edit', '-hl'));
+                    other.scrollTop = ta.scrollTop;
+                    other.scrollLeft = ta.scrollLeft;
+                    hl.scrollTop = ta.scrollTop;
+                    hl.scrollLeft = ta.scrollLeft;
+                    if (otherHl) {
+                        otherHl.scrollTop = ta.scrollTop;
+                        otherHl.scrollLeft = ta.scrollLeft;
+                    }
+                    const gutter = document.getElementById('diff-gutter');
+                    if (gutter) gutter.scrollTop = ta.scrollTop;
+                    requestAnimationFrame(() => { diffScrollLock = false; });
+                });
+                ta.addEventListener('input', scheduleDiffRefresh);
+                ta.addEventListener('keyup', updateLineCompare);
+                ta.addEventListener('click', updateLineCompare);
+            });
             document.addEventListener('keydown', (e) => {
                 if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
                     e.preventDefault();
+                    if (!document.getElementById('diff-modal').classList.contains('hidden')) {
+                        saveDiffSide('left');
+                        saveDiffSide('right');
+                        return;
+                    }
                     saveNow();
+                }
+            });
+            document.getElementById('history-label').addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    renameHistoryLabel();
                 }
             });
             document.getElementById('find-query').addEventListener('input', () => refreshFindMatches());
@@ -2046,6 +3337,20 @@
             });
             document.addEventListener('keydown', (e) => {
                 const key = (e.key || '').toLowerCase();
+                if (e.key === 'Escape') {
+                    hideOutlineMenu();
+                    const diffModal = document.getElementById('diff-modal');
+                    const mergeModal = document.getElementById('merge-modal');
+                    const folderModalEl = document.getElementById('folder-modal');
+                    if (!diffModal.classList.contains('hidden')) closeDiffModal();
+                    if (!mergeModal.classList.contains('hidden')) closeMergeModal();
+                    if (!folderModalEl.classList.contains('hidden')) closeFolderModal();
+                    const historyModal = document.getElementById('history-modal');
+                    if (historyModal && !historyModal.classList.contains('hidden')) closeHistory();
+                    const passwordModal = document.getElementById('password-modal');
+                    if (passwordModal && !passwordModal.classList.contains('hidden')) closePasswordModal();
+                    if (compareSource) cancelCompare();
+                }
                 if ((e.ctrlKey || e.metaKey) && key === 'f' && activeTab === 'editor') {
                     e.preventDefault();
                     toggleFindBar(true);

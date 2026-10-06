@@ -2,5 +2,7 @@
 signal-data/
 ollama-data/
 vault/
+data/
+history/
 __pycache__/
 *.pyc

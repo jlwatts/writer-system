@@ -1,6 +1,7 @@
+import json
+import os
 from pathlib import Path
 from unittest.mock import MagicMock, patch
-import os
 
 import pytest
 from fastapi.testclient import TestClient
@@ -125,6 +126,137 @@ def test_sync_chat_returns_ui_payload(mock_gemini, vaults_dir: Path):
     assert (vaults_dir / "books" / "chapter-1.md").read_text() == "New draft"
 
 
+@patch("app.main.client.models.generate_content")
+def test_clarification_blocks_file_changes(mock_gemini, vaults_dir: Path):
+    books = vaults_dir / "books"
+    books.mkdir()
+    (books / "chapter-1.md").write_text("Old draft", encoding="utf-8")
+    mock_response = MagicMock()
+    mock_response.text = json.dumps({
+        "reply": "I will rewrite everything.",
+        "clarification": "Which scene should I extract?",
+        "updated_content": "Replaced",
+        "new_file": {"name": "scene.md", "content": "Extracted"},
+    })
+    mock_gemini.return_value = mock_response
+
+    response = client.post("/api/chat", json={
+        "prompt": "Pull a scene out",
+        "vault": "books",
+        "file_path": "chapter-1.md",
+        "file_content": "Old draft",
+    })
+    assert response.status_code == 200
+    body = response.json()
+    assert body["clarification"] == "Which scene should I extract?"
+    assert body["response"] == "Which scene should I extract?"
+    assert body["updated_content"] is None
+    assert body["new_file"] is None
+    assert (books / "chapter-1.md").read_text(encoding="utf-8") == "Old draft"
+    assert not (books / "scene.md").exists()
+
+    history = client.get("/api/chat/history?vault=books").json()["history"]
+    model_turns = [msg for msg in history if msg["role"] == "model"]
+    assert model_turns[-1]["text"] == "Which scene should I extract?"
+    assert model_turns[-1]["clarification"] is True
+
+    mock_response.text = json.dumps({
+        "reply": "Saved the tavern scene.",
+        "clarification": None,
+        "updated_content": None,
+        "new_file": None,
+    })
+    follow = client.post("/api/chat", json={
+        "prompt": "The tavern scene",
+        "vault": "books",
+        "file_path": "chapter-1.md",
+        "file_content": "Old draft",
+    })
+    assert follow.status_code == 200
+    assert follow.json()["clarification"] is None
+    history = client.get("/api/chat/history?vault=books").json()["history"]
+    assert all(not msg.get("clarification") for msg in history)
+
+
+@patch("app.main.client.models.generate_content")
+def test_chat_returns_new_file_without_writing(mock_gemini, vaults_dir: Path):
+    books = vaults_dir / "books"
+    books.mkdir()
+    (books / "chapter-1.md").write_text("Keep me", encoding="utf-8")
+    mock_response = MagicMock()
+    mock_response.text = json.dumps({
+        "reply": "I pulled the tavern scene.",
+        "clarification": None,
+        "updated_content": None,
+        "new_file": {"name": "notes/scene.md", "content": "The tavern was loud."},
+    })
+    mock_gemini.return_value = mock_response
+
+    response = client.post("/api/chat", json={
+        "prompt": "Extract the tavern scene",
+        "vault": "books",
+        "file_path": "notes/chapter-1.md",
+        "file_content": "Keep me",
+    })
+    assert response.status_code == 200
+    body = response.json()
+    assert body["clarification"] is None
+    assert body["updated_content"] is None
+    assert body["new_file"] == {"name": "scene.md", "content": "The tavern was loud."}
+    assert (books / "chapter-1.md").read_text(encoding="utf-8") == "Keep me"
+    assert not (books / "scene.md").exists()
+    assert not (books / "notes" / "scene.md").exists()
+
+    mock_response.text = json.dumps({
+        "reply": "Here is the extract.",
+        "updated_content": None,
+        "new_file": {"name": "..", "content": "Hello"},
+    })
+    repaired = client.post("/api/chat", json={
+        "prompt": "Save that extract",
+        "vault": "books",
+        "file_path": "chapter-1.md",
+        "file_content": "Keep me",
+    })
+    assert repaired.json()["new_file"] == {"name": "extract.md", "content": "Hello"}
+    assert not (books / "extract.md").exists()
+
+
+@patch("app.main.client.models.generate_content")
+def test_chat_drops_invalid_new_file(mock_gemini, vaults_dir: Path):
+    mock_response = MagicMock()
+    mock_response.text = json.dumps({
+        "reply": "Nothing to save.",
+        "updated_content": None,
+        "new_file": {"name": "scene.md", "content": "   "},
+    })
+    mock_gemini.return_value = mock_response
+
+    response = client.post("/api/chat", json={
+        "prompt": "Extract something",
+        "vault": "books",
+        "file_path": "chapter-1.md",
+        "file_content": "Old draft",
+    })
+    assert response.status_code == 200
+    assert response.json()["new_file"] is None
+    assert not (vaults_dir / "books" / "scene.md").exists()
+
+    mock_response.text = json.dumps({
+        "reply": "Still nothing.",
+        "updated_content": None,
+        "new_file": "scene.md",
+    })
+    again = client.post("/api/chat", json={
+        "prompt": "Try again",
+        "vault": "books",
+        "file_path": "chapter-1.md",
+        "file_content": "Old draft",
+    })
+    assert again.status_code == 200
+    assert again.json()["new_file"] is None
+
+
 def test_create_rename_move_copy_delete(vaults_dir: Path):
     created = client.post("/api/file/create", json={"vault": "books", "folder": "notes"})
     assert created.status_code == 200
@@ -211,3 +343,87 @@ def test_rename_and_delete_folder(vaults_dir: Path):
 
     root = client.delete("/api/file?vault=books&path=.")
     assert root.status_code == 400
+
+
+def test_create_and_delete_folder(vaults_dir: Path):
+    created = client.post("/api/file/mkdir", json={"vault": "books", "folder": ""})
+    assert created.status_code == 200
+    body = created.json()
+    assert body["kind"] == "folder"
+    assert body["filename"] == "untitled"
+    assert (vaults_dir / "books" / "untitled").is_dir()
+    assert list((vaults_dir / "books" / "untitled").iterdir()) == []
+
+    listing = client.get("/api/files?vault=books")
+    assert listing.status_code == 200
+    assert "untitled" in listing.json()["folders"]
+
+    nested = client.post("/api/file/mkdir", json={"vault": "books", "folder": "untitled"})
+    assert nested.status_code == 200
+    assert nested.json()["filename"] == "untitled/untitled"
+    assert (vaults_dir / "books" / "untitled" / "untitled").is_dir()
+
+    second = client.post("/api/file/mkdir", json={"vault": "books", "folder": ""})
+    assert second.status_code == 200
+    assert second.json()["filename"] == "untitled (1)"
+
+    conflict = client.post("/api/file/mkdir", json={
+        "vault": "books",
+        "folder": "",
+        "name": "untitled",
+    })
+    assert conflict.status_code == 409
+    assert conflict.json()["detail"]["suggested"] == "untitled (2)"
+
+    kept = client.post("/api/file/mkdir", json={
+        "vault": "books",
+        "folder": "",
+        "name": "untitled",
+        "conflict": "keep",
+    })
+    assert kept.status_code == 200
+    assert kept.json()["filename"] == "untitled (2)"
+
+    empty_removed = client.delete("/api/file?vault=books&path=untitled (2)")
+    assert empty_removed.status_code == 200
+    assert empty_removed.json()["kind"] == "folder"
+    assert not (vaults_dir / "books" / "untitled (2)").exists()
+
+    after = client.get("/api/files?vault=books")
+    assert "untitled (2)" not in after.json()["folders"]
+
+    nested_removed = client.delete("/api/file?vault=books&path=untitled")
+    assert nested_removed.status_code == 200
+    assert nested_removed.json()["kind"] == "folder"
+    assert not (vaults_dir / "books" / "untitled").exists()
+
+    root = client.delete("/api/file?vault=books&path=.")
+    assert root.status_code == 400
+
+
+def test_download_file(vaults_dir: Path):
+    save = client.post("/api/file", json={
+        "vault": "books",
+        "file_path": "notes/scene.md",
+        "content": "download me",
+    })
+    assert save.status_code == 200
+
+    downloaded = client.get("/api/file/download?vault=books&path=notes/scene.md")
+    assert downloaded.status_code == 200
+    assert downloaded.content == b"download me"
+    disposition = downloaded.headers.get("content-disposition", "")
+    assert "attachment" in disposition
+    assert "scene.md" in disposition
+
+    missing = client.get("/api/file/download?vault=books&path=missing.md")
+    assert missing.status_code == 404
+
+    no_path = client.get("/api/file/download?vault=books")
+    assert no_path.status_code == 400
+
+    folder = client.get("/api/file/download?vault=books&path=notes")
+    assert folder.status_code == 404
+
+    traversal = client.get("/api/file/download?vault=books&path=../secret.md")
+    assert traversal.status_code == 400

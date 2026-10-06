@@ -3,12 +3,18 @@ services:
     build: .
     container_name: writer_app
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     env_file:
       - .env
+    environment:
+      COOKIE_SECURE: "1"
+      AUTH_DIR: /app/data
+      HISTORY_DIR: /app/history
     volumes:
       - ./app:/app/app          # <--- Live-mounts your code folder
       - ./vault:/app/vaults
+      - ./data:/app/data
+      - ./history:/app/history
     restart: unless-stopped
 
   syncthing:
@@ -17,8 +23,8 @@ services:
     volumes:
       - ./vault:/var/syncthing/vaults
     ports:
-      - "8384:8384"
-      - "22000:22000/tcp"
-      - "22000:22000/udp"
+      - "127.0.0.1:8384:8384"
+      - "127.0.0.1:22000:22000/tcp"
+      - "127.0.0.1:22000:22000/udp"
     restart: unless-stopped
 

@@ -1,5 +1,6 @@
 from fastapi.testclient import TestClient
 
+from app.main import app
 from app.markdown_preview import render_markdown
 
 client = TestClient(app)
