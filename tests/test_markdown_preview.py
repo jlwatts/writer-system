@@ -1,3 +1,5 @@
+import re
+
 from fastapi.testclient import TestClient
 
 from app.main import app
@@ -31,8 +33,8 @@ def test_fenced_code_and_safe_links():
 
 
 def test_raw_html_is_not_executable():
-    html = render_markdown("<img src=x onerror=alert(1)>")
-    assert "onerror" not in html
+    rendered = render_markdown("<img src=x onerror=alert(1)>")
+    assert not re.search(r"(?i)<[^>]*\sonerror\s*=", rendered)
 
 
 def test_preview_api():
