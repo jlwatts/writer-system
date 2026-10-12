@@ -419,6 +419,24 @@
         </form>
     </div>
 
+    <div id="secure-secret-modal" class="modal-overlay fixed inset-0 z-[75] hidden items-center justify-center p-4">
+        <form id="secure-secret-form" class="bg-gray-800 border border-gray-600 rounded-lg w-full max-w-sm p-4 shadow-2xl" onsubmit="submitSecureSecret(event)">
+            <h3 id="secure-secret-title" class="text-sm font-semibold text-gray-100 mb-2">Enter password</h3>
+            <p id="secure-secret-message" class="text-xs text-gray-400 mb-3"></p>
+            <label id="secure-secret-label" class="block text-xs text-gray-300 mb-1" for="secure-secret">Password</label>
+            <input id="secure-secret" type="password" required class="w-full bg-gray-900 border border-gray-600 rounded-md px-2 py-1.5 text-sm mb-2">
+            <div id="secure-secret-confirm-row" class="hidden">
+                <label class="block text-xs text-gray-300 mb-1" for="secure-secret-confirm">Confirm password</label>
+                <input id="secure-secret-confirm" type="password" class="w-full bg-gray-900 border border-gray-600 rounded-md px-2 py-1.5 text-sm mb-2">
+            </div>
+            <p id="secure-secret-error" class="text-xs text-red-400 min-h-[1rem] mb-2"></p>
+            <div class="flex justify-end gap-2">
+                <button type="button" onclick="closeSecureSecret()" class="px-3 py-1.5 text-xs rounded-md bg-gray-700 text-gray-200 hover:bg-gray-600">Cancel</button>
+                <button type="submit" class="px-3 py-1.5 text-xs rounded-md bg-indigo-600 text-white hover:bg-indigo-500">Continue</button>
+            </div>
+        </form>
+    </div>
+
     <div id="prompt-files-modal" class="modal-overlay fixed inset-0 z-[58] hidden items-center justify-center p-4">
         <div class="prompt-files-dialog bg-gray-800 border border-gray-600 rounded-lg w-full flex flex-col shadow-2xl">
             <div class="px-4 py-3 border-b border-gray-700 flex items-start justify-between gap-3">
@@ -592,21 +610,80 @@
             if (historyBtn) historyBtn.disabled = currentEncrypted;
         }
 
+        let secureSecretResolver = null;
+        let secureSecretMinimum = 1;
+        let secureSecretNeedsConfirmation = false;
+
+        function requestSecureSecret({
+            title = 'Enter password',
+            label = 'Password',
+            message = '',
+            confirmValue = false,
+            minLength = 1,
+            autocomplete = 'current-password',
+        } = {}) {
+            if (secureSecretResolver) closeSecureSecret();
+            const modal = document.getElementById('secure-secret-modal');
+            const form = document.getElementById('secure-secret-form');
+            const secret = document.getElementById('secure-secret');
+            const confirmation = document.getElementById('secure-secret-confirm');
+            form.reset();
+            document.getElementById('secure-secret-title').textContent = title;
+            document.getElementById('secure-secret-label').textContent = label;
+            document.getElementById('secure-secret-message').textContent = message;
+            document.getElementById('secure-secret-error').textContent = '';
+            secureSecretMinimum = Math.max(1, Number(minLength) || 1);
+            secureSecretNeedsConfirmation = !!confirmValue;
+            secret.minLength = secureSecretMinimum;
+            secret.autocomplete = autocomplete;
+            confirmation.minLength = secureSecretMinimum;
+            confirmation.autocomplete = autocomplete === 'new-password' ? 'new-password' : 'off';
+            confirmation.required = secureSecretNeedsConfirmation;
+            document.getElementById('secure-secret-confirm-row').classList.toggle('hidden', !secureSecretNeedsConfirmation);
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+            secret.focus();
+            return new Promise(resolve => {
+                secureSecretResolver = resolve;
+            });
+        }
+
+        function closeSecureSecret(value = null) {
+            const modal = document.getElementById('secure-secret-modal');
+            document.getElementById('secure-secret-form').reset();
+            document.getElementById('secure-secret-error').textContent = '';
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+            const resolve = secureSecretResolver;
+            secureSecretResolver = null;
+            if (resolve) resolve(value);
+        }
+
+        function submitSecureSecret(event) {
+            event.preventDefault();
+            const first = document.getElementById('secure-secret').value;
+            const second = document.getElementById('secure-secret-confirm').value;
+            const error = document.getElementById('secure-secret-error');
+            if (first.length < secureSecretMinimum) {
+                error.textContent = `Password must be at least ${secureSecretMinimum} characters.`;
+                return;
+            }
+            if (secureSecretNeedsConfirmation && first !== second) {
+                error.textContent = 'Passwords do not match.';
+                return;
+            }
+            closeSecureSecret(first);
+        }
+
         function askPassphrase(confirmValue = false, label = 'File passphrase') {
-            const first = window.prompt(`${label} (at least ${WriterCrypto.MIN_PASSPHRASE} characters)`);
-            if (first == null) return null;
-            if (first.length < WriterCrypto.MIN_PASSPHRASE) {
-                alert(`Passphrase must be at least ${WriterCrypto.MIN_PASSPHRASE} characters.`);
-                return null;
-            }
-            if (confirmValue) {
-                const second = window.prompt('Confirm file passphrase');
-                if (second !== first) {
-                    alert('Passphrases do not match.');
-                    return null;
-                }
-            }
-            return first;
+            return requestSecureSecret({
+                title: label,
+                label,
+                message: `At least ${WriterCrypto.MIN_PASSPHRASE} characters.`,
+                confirmValue,
+                minLength: WriterCrypto.MIN_PASSPHRASE,
+                autocomplete: confirmValue ? 'new-password' : 'current-password',
+            });
         }
 
         async function clearChat(channel, quiet = false) {
@@ -660,6 +737,8 @@
         }
 
         function lockEncryptedSession(reason = 'locked') {
+            const secretModal = document.getElementById('secure-secret-modal');
+            if (secretModal && !secretModal.classList.contains('hidden')) closeSecureSecret();
             if (!encryptedSessionOpened && !currentEncrypted && WriterCrypto.keyCount() === 0) return;
             secureGeneration += 1;
             clearTimeout(saveTimer);
@@ -698,7 +777,7 @@
                 alert(`Try again in ${Math.ceil((status.retry_after || 0) / 60)} minute(s).`);
                 return null;
             }
-            const passphrase = askPassphrase(false, 'Unlock passphrase');
+            const passphrase = await askPassphrase(false, 'Unlock passphrase');
             if (!passphrase) return null;
             let opened;
             try {
@@ -1759,7 +1838,7 @@
         async function createEncryptedFile(folder) {
             hideContextMenu();
             if (editor.value !== lastSavedContent || (!currentFilePath && editor.value)) await autosaveNow();
-            const passphrase = askPassphrase(true, 'New encrypted file passphrase');
+            const passphrase = await askPassphrase(true, 'New encrypted file passphrase');
             if (!passphrase) return;
             try {
                 const created = await WriterCrypto.create(passphrase, '');
@@ -1829,7 +1908,7 @@
             }
             const warning = 'Encrypt this existing note? ALL WriterSystem history for this vault and local plaintext Syncthing versions of this note will be permanently deleted. Remote device copies must be cleaned separately.';
             if (!confirm(warning)) return;
-            const passphrase = askPassphrase(true, 'Encryption passphrase');
+            const passphrase = await askPassphrase(true, 'Encryption passphrase');
             if (!passphrase) return;
             try {
                 const created = await WriterCrypto.create(passphrase, editor.value);
@@ -2189,7 +2268,11 @@
             if (!confirm(count === 1
                 ? `Delete ${folders.length ? `folder "${folders[0]}" and everything inside it` : fileNameOf(files[0])}? Syncthing may propagate this deletion.`
                 : `Delete ${count} items? Syncthing may propagate these deletions.`)) return;
-            const loginPassword = window.prompt('Current WriterSystem password');
+            const loginPassword = await requestSecureSecret({
+                title: 'Confirm deletion',
+                label: 'Current WriterSystem password',
+                autocomplete: 'current-password',
+            });
             if (loginPassword == null) return;
             const clearIfGone = (path, isFolder) => {
                 if (!currentFilePath) return;
@@ -2234,7 +2317,7 @@
                     }
                     const fetched = await fetch(`/api/file?vault=${encodeURIComponent(currentVault())}&path=${encodeURIComponent(entry.path)}`);
                     const fileData = await fetched.json().catch(() => ({}));
-                    const passphrase = askPassphrase(false, `Passphrase for ${entry.path}`);
+                    const passphrase = await askPassphrase(false, `Passphrase for ${entry.path}`);
                     if (!passphrase) { proofFailed = true; break; }
                     try {
                         const opened = await WriterCrypto.open(fileData.content, passphrase);
@@ -4284,6 +4367,8 @@
                     if (historyModal && !historyModal.classList.contains('hidden')) closeHistory();
                     const passwordModal = document.getElementById('password-modal');
                     if (passwordModal && !passwordModal.classList.contains('hidden')) closePasswordModal();
+                    const secretModal = document.getElementById('secure-secret-modal');
+                    if (secretModal && !secretModal.classList.contains('hidden')) closeSecureSecret();
                     if (compareSource) cancelCompare();
                 }
                 if ((e.ctrlKey || e.metaKey) && key === 'f' && activeTab === 'editor') {

@@ -296,6 +296,75 @@ def test_integration_confirmed_folder_delete(vaults: Path):
     assert not (vaults / "v" / "folder").exists()
 
 
+# DELETE-B-001 — Browser component: Given any password or passphrase prompt,
+# when it is displayed, then it uses masked password inputs and never the
+# browser's plaintext window.prompt dialog.
+def test_browser_component_credentials_are_always_masked():
+    source = Path(main.__file__).with_name("templates").joinpath("index.html").read_text()
+    for field_id in (
+        "secure-secret",
+        "secure-secret-confirm",
+        "pw-current",
+        "pw-next",
+        "pw-confirm",
+    ):
+        assert f'id="{field_id}" type="password"' in source
+    assert "window.prompt(" not in source
+
+
+# DELETE-I-001/DELETE-I-002 — Integration: Given one plaintext and one
+# encrypted file, when deletion is confirmed, then the plaintext file needs
+# only the WriterSystem password while the encrypted file additionally needs
+# its encryption proof.
+def test_integration_delete_uses_one_password_for_plaintext_and_two_for_encrypted(vaults: Path):
+    plain = vaults / "v" / "plain.md"
+    plain.parent.mkdir(parents=True)
+    plain.write_text("ordinary")
+    plain_manifest = client.post(
+        "/api/file/delete-manifest", json={"vault": "v", "path": "plain.md"}
+    ).json()
+    assert plain_manifest["encrypted_ids"] == []
+    plain_deleted = client.post(
+        "/api/file/delete-confirmed",
+        json={
+            "vault": "v",
+            "path": "plain.md",
+            "login_password": "test-password",
+            "manifest": plain_manifest["manifest"],
+            "proofs": {},
+        },
+    )
+    assert plain_deleted.status_code == 200
+
+    file_id = b64(16, 6)
+    verifier = b64(32, 7)
+    assert client.post(
+        "/api/file/create",
+        json={
+            "vault": "v",
+            "name": "secret.md",
+            "content": envelope(file_id=file_id),
+            "verifier": verifier,
+        },
+    ).status_code == 200
+    encrypted_manifest = client.post(
+        "/api/file/delete-manifest", json={"vault": "v", "path": "secret.md"}
+    ).json()
+    assert encrypted_manifest["encrypted_ids"] == [file_id]
+    missing_second_password = client.post(
+        "/api/file/delete-confirmed",
+        json={
+            "vault": "v",
+            "path": "secret.md",
+            "login_password": "test-password",
+            "manifest": encrypted_manifest["manifest"],
+            "proofs": {},
+        },
+    )
+    assert missing_second_password.status_code == 400
+    assert (vaults / "v" / "secret.md").exists()
+
+
 # LOCK-B-001/LOCK-B-002/LOCK-B-003/LOCK-B-004 — Browser-component contract: Given an encrypted note is open, when a lock
 # trigger fires, then pending save is cancelled, editor surfaces are blanked,
 # key memory is cleared, chats are cleared, and logout uses the same path.
