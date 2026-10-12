@@ -14,8 +14,6 @@ import time
 from pathlib import Path
 from typing import Any
 
-from fastapi import HTTPException
-
 HEADER = "WRITERENC1"
 PREFIX = HEADER + "\n"
 VERSION = 1

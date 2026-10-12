@@ -5,7 +5,6 @@ import time
 import logging
 import asyncio
 import shutil
-import hashlib
 import secrets
 import threading
 from contextlib import asynccontextmanager, suppress
@@ -1430,7 +1429,7 @@ def validate_context_paths(vault: str, paths: List[str]) -> List[str]:
 
 
 def resolve_prompt_paths(vault: str, context_files: Optional[List[str]]) -> List[str]:
-    """Posted paths win. Otherwise the saved list, or SKILL.md when nothing is saved."""
+    """Prefer posted paths, then the saved list, then SKILL.md."""
     name = sanitize_vault_name(vault)
     if context_files is not None:
         return validate_context_paths(name, context_files)

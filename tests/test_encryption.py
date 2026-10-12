@@ -143,7 +143,7 @@ def test_integration_conversion_runs_destructive_cleanup(vaults: Path, monkeypat
     target = vaults / "v" / "plain.md"
     target.parent.mkdir(parents=True)
     target.write_text("plaintext marker")
-    calls = []
+    calls: list[tuple[object, ...]] = []
     monkeypatch.setattr(main, "purge_vault_history", lambda vault: calls.append(("history", vault)))
     monkeypatch.setattr(
         main, "_delete_syncthing_versions", lambda vault, path: calls.append(("versions", vault, path))
