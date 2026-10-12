@@ -204,7 +204,7 @@ def _escape_quote_at(text: str, index: int):
 
 
 def _needs_comma_before(text: str, pos: int) -> bool:
-    """True when `pos` is a real next JSON value that is missing its comma."""
+    """Return whether `pos` starts a JSON value that is missing its comma."""
     if pos >= len(text):
         return False
     rest = text[pos:]
@@ -302,7 +302,7 @@ def _repair_json_text(payload: str):
     return None, truncated, first_error
 
 
-def clean_json_response(raw_text: str) -> dict:
+def clean_json_response(raw_text: str | None) -> dict:
     """Parse Gemini JSON, including prose quotes and other small syntax slips."""
     if raw_text is None:
         raise json.JSONDecodeError("Empty model response", "", 0)
@@ -678,9 +678,7 @@ def update_password(req: PasswordChangeRequest, response: Response):
 
 @app.get("/", response_class=HTMLResponse)
 async def read_root(request: Request):
-    """
-    Serves the primary UI interface.
-    """
+    """Serve the primary UI."""
     return templates.TemplateResponse(
         request=request,
         name="index.html",

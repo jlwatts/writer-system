@@ -1,5 +1,6 @@
 import json
 import os
+from collections.abc import Iterator
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -13,7 +14,7 @@ client = TestClient(app)
 
 
 @pytest.fixture
-def vaults_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+def vaults_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
     monkeypatch.setattr(main, "VAULTS_DIR", tmp_path)
     CHAT_HISTORIES.clear()
     yield tmp_path
