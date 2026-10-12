@@ -15,6 +15,8 @@ def signed_in(request, tmp_path, monkeypatch):
         return
     monkeypatch.setattr(auth, "AUTH_DIR", tmp_path / ".auth")
     monkeypatch.delenv("COOKIE_SECURE", raising=False)
+    from app import main as main_mod
+    main_mod.PROMPT_FILE_SELECTIONS.clear()
     auth.set_password("test-password")
     token = auth.sign_session()
     client = getattr(request.module, "client", None)

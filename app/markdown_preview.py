@@ -37,7 +37,7 @@ def render_markdown(source: str | None) -> str:
             output_format="html",
         )
         return _sanitize(html_out)
-    return _fallback_render(text)
+    return _sanitize(_fallback_render(text))
 
 
 FENCE_RE = re.compile(r"```([^\n]*)\n(.*?)```", re.DOTALL)

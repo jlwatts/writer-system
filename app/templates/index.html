@@ -11,7 +11,29 @@
     <script src="/static/editor-tools.js?v={{ asset_version }}"></script>
     <script src="/static/diff.min.js?v={{ asset_version }}"></script>
     <script src="/static/file-batch.js?v={{ asset_version }}"></script>
+    <script type="importmap">
+    {
+        "imports": {
+            "@codemirror/state": "https://cdn.jsdelivr.net/npm/@codemirror/state@6.7.6/dist/index.js",
+            "@codemirror/view": "https://cdn.jsdelivr.net/npm/@codemirror/view@6.43.14/dist/index.js",
+            "@codemirror/commands": "https://cdn.jsdelivr.net/npm/@codemirror/commands@6.8.1/dist/index.js",
+            "@codemirror/language": "https://cdn.jsdelivr.net/npm/@codemirror/language@6.11.3/dist/index.js",
+            "@codemirror/merge": "https://cdn.jsdelivr.net/npm/@codemirror/merge@6.12.2/dist/index.js",
+            "@codemirror/theme-one-dark": "https://cdn.jsdelivr.net/npm/@codemirror/theme-one-dark@6.1.3/dist/index.js",
+            "@lezer/highlight": "https://cdn.jsdelivr.net/npm/@lezer/highlight@1.2.3/dist/index.js",
+            "@lezer/common": "https://cdn.jsdelivr.net/npm/@lezer/common@1.5.0/dist/index.js",
+            "style-mod": "https://cdn.jsdelivr.net/npm/style-mod@4.1.3/src/style-mod.js",
+            "crelt": "https://cdn.jsdelivr.net/npm/crelt@1.0.6/index.js",
+            "w3c-keyname": "https://cdn.jsdelivr.net/npm/w3c-keyname@2.2.8/index.js",
+            "@marijn/find-cluster-break": "https://cdn.jsdelivr.net/npm/@marijn/find-cluster-break@1.0.1/src/index.js"
+        }
+    }
+    </script>
+    <script type="module" src="/static/compare-view.js?v={{ asset_version }}"></script>
     <script src="/static/composer-keys.js?v={{ asset_version }}"></script>
+    <script src="/static/chat-send.js?v={{ asset_version }}"></script>
+    <script src="/static/field-isolation.js?v={{ asset_version }}"></script>
+    <script src="/static/vault-crypto.js?v={{ asset_version }}"></script>
 </head>
 <body class="bg-gray-900 text-gray-100 h-full w-full font-sans antialiased relative">
 
@@ -25,7 +47,7 @@
                 <option value="default">default</option>
             </select>
             <button type="button" onclick="openPasswordModal()" class="text-xs text-gray-300 hover:text-white px-2 py-1 shrink-0">Password</button>
-            <a href="/logout" class="text-xs text-gray-300 hover:text-white px-2 py-1 shrink-0">Log out</a>
+            <a href="/logout" onclick="return secureLogout(event)" class="text-xs text-gray-300 hover:text-white px-2 py-1 shrink-0">Log out</a>
         </div>
 
         <!-- 3 TABS -->
@@ -89,6 +111,9 @@
                     </button>
                     <input type="text" id="filename-editor" class="hidden flex-1 bg-gray-800 text-base sm:text-lg font-semibold text-gray-200 rounded-md border border-indigo-500 px-2 py-0.5 min-w-0" />
                     <button type="button" onclick="createNewFile('')" class="toolbar-btn" title="New file">+ New</button>
+                    <button type="button" onclick="createEncryptedFile('')" class="toolbar-btn" title="New encrypted file">+ Encrypted</button>
+                    <button type="button" id="encrypt-file-btn" onclick="toggleFileEncryption()" class="toolbar-btn">Encrypt</button>
+                    <button type="button" id="secure-lock-btn" onclick="lockEncryptedSession('manual')" class="toolbar-btn hidden">Lock</button>
                     <button type="button" id="find-toggle-btn" onclick="toggleFindBar()" class="toolbar-btn">Find</button>
                     <button type="button" id="history-open-btn" onclick="openHistory(currentFilePath)" class="toolbar-btn">History</button>
                     <div class="outline-nav">
@@ -106,14 +131,14 @@
                 </div>
                 <div id="find-bar" class="hidden shrink-0 mb-2 p-2 rounded-lg border border-gray-700 bg-gray-800 flex flex-col gap-2">
                     <div class="flex items-center gap-2 flex-wrap">
-                        <input id="find-query" type="text" placeholder="Find" class="flex-1 min-w-[8rem] bg-gray-900 border border-gray-700 rounded-md px-2 py-1 text-sm text-gray-100">
-                        <input id="find-replace" type="text" placeholder="Replace" class="flex-1 min-w-[8rem] bg-gray-900 border border-gray-700 rounded-md px-2 py-1 text-sm text-gray-100">
+                        <input id="find-query" type="text" placeholder="Match" disabled autocomplete="off" enterkeyhint="enter" class="flex-1 min-w-[8rem] bg-gray-900 border border-gray-700 rounded-md px-2 py-1 text-sm text-gray-100">
+                        <input id="find-replace" type="text" placeholder="Replace with" disabled autocomplete="off" enterkeyhint="enter" class="flex-1 min-w-[8rem] bg-gray-900 border border-gray-700 rounded-md px-2 py-1 text-sm text-gray-100">
                         <span id="find-status" class="text-[11px] text-gray-400 shrink-0">No matches</span>
                     </div>
                     <div class="flex items-center gap-2 flex-wrap text-[11px] text-gray-400">
-                        <label class="flex items-center gap-1"><input id="find-regex" type="checkbox" onchange="refreshFindMatches()"> Regex</label>
-                        <label class="flex items-center gap-1"><input id="find-word" type="checkbox" onchange="refreshFindMatches()"> Whole word</label>
-                        <label class="flex items-center gap-1"><input id="find-case" type="checkbox" onchange="refreshFindMatches()"> Case</label>
+                        <label class="flex items-center gap-1"><input id="find-regex" type="checkbox" disabled onchange="refreshFindMatches()"> Regex</label>
+                        <label class="flex items-center gap-1"><input id="find-word" type="checkbox" disabled onchange="refreshFindMatches()"> Whole word</label>
+                        <label class="flex items-center gap-1"><input id="find-case" type="checkbox" disabled onchange="refreshFindMatches()"> Case</label>
                         <button type="button" onclick="findStep(-1)" class="px-2 py-1 rounded bg-gray-700 text-gray-200">Prev</button>
                         <button type="button" onclick="findStep(1)" class="px-2 py-1 rounded bg-gray-700 text-gray-200">Next</button>
                         <button type="button" onclick="replaceCurrentMatch()" class="px-2 py-1 rounded bg-gray-700 text-gray-200">Replace</button>
@@ -121,7 +146,7 @@
                         <button type="button" onclick="toggleFindBar(false)" class="px-2 py-1 rounded bg-gray-700 text-gray-200">Close</button>
                     </div>
                 </div>
-                <textarea id="editor-textarea" class="w-full min-w-0 flex-1 min-h-0 bg-gray-800 text-gray-100 p-3.5 rounded-lg border border-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono text-sm resize-none" placeholder="Create a new file or select one from the sidebar..."></textarea>
+                <textarea id="editor-textarea" enterkeyhint="enter" autocomplete="off" class="w-full min-w-0 flex-1 min-h-0 bg-gray-800 text-gray-100 p-3.5 rounded-lg border border-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono text-sm resize-none" placeholder="Create a new file or select one from the sidebar..."></textarea>
                 <div id="markdown-preview" tabindex="0" class="hidden w-full min-w-0 flex-1 min-h-0 overflow-y-auto overflow-x-hidden bg-gray-800 text-gray-100 p-4 rounded-lg border border-gray-700 prose prose-invert max-w-none"></div>
                 <div id="editor-status" class="shrink-0 mt-2 flex items-center justify-between text-[11px] sm:text-xs text-gray-500">
                     <span id="editor-word-count">0 words</span>
@@ -133,7 +158,7 @@
                 <svg class="edge-rail-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.75 19.5 8.25 12l7.5-7.5"/></svg>
                 <span>Chat</span>
             </button>
-            <aside id="conversation-dock" class="conversation-dock hidden"></aside>
+            <aside id="conversation-dock" class="conversation-dock hidden flex flex-col min-h-0 overflow-hidden"></aside>
         </div>
 
         <!-- 2. TODOS TAB -->
@@ -141,9 +166,12 @@
             <aside id="guppy-pane" class="w-72 bg-gray-800/95 border-r border-gray-700 flex flex-col shrink-0 transition-all duration-300 ease-in-out z-20 min-h-0">
                 <div class="p-3 border-b border-gray-700 flex justify-between items-center shrink-0">
                     <span class="text-xs font-semibold uppercase tracking-wider text-emerald-400">Guppy</span>
+                    <div class="flex items-center gap-1">
+                    <button type="button" onclick="clearChat('todos')" class="text-[11px] text-gray-400 hover:text-white px-1">Clear chat</button>
                     <button type="button" onclick="toggleGuppyPane()" class="icon-btn" title="Collapse Guppy" aria-label="Collapse Guppy">
                         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.75 19.5 8.25 12l7.5-7.5"/></svg>
                     </button>
+                    </div>
                 </div>
                 <div id="guppy-body" class="flex-1 min-h-0 flex flex-col">
                     <div id="guppy-messages" class="flex-1 overflow-y-auto p-3 space-y-3 text-sm">
@@ -154,7 +182,7 @@
                     </div>
                     <div class="shrink-0 p-2.5 border-t border-gray-700 flex items-end gap-2">
                         <div class="flex-1 bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 focus-within:ring-2 focus-within:ring-emerald-500">
-                            <textarea id="guppy-input" rows="1" placeholder="Ask Guppy to add, finish, or sort to-dos…" class="auto-expand w-full bg-gray-900 text-gray-100 placeholder-gray-500 focus:outline-none text-xs sm:text-sm leading-relaxed block"></textarea>
+                            <textarea id="guppy-input" rows="1" enterkeyhint="enter" autocomplete="off" placeholder="Ask Guppy to add, finish, or sort to-dos…" class="auto-expand w-full bg-gray-900 text-gray-100 placeholder-gray-500 focus:outline-none text-xs sm:text-sm leading-relaxed block"></textarea>
                         </div>
                         <button id="send-guppy-btn" type="button" onclick="submitChat('todos')" class="px-3.5 py-2 bg-emerald-700 hover:bg-emerald-600 text-white text-xs sm:text-sm font-medium rounded-lg shadow shrink-0">Send</button>
                     </div>
@@ -197,10 +225,14 @@
             <div id="conversation-host" class="max-w-4xl mx-auto w-full flex-1 flex flex-col min-h-0">
                 <div id="conversation-pane" class="conversation-pane">
                     <div class="conversation-pane-header">
-                        <h2 class="text-lg sm:text-xl font-bold text-gray-200">Writing conversation</h2>
-                        <button type="button" class="icon-btn chat-collapse-btn" onclick="toggleChatPane()" title="Collapse conversation" aria-label="Collapse conversation">
-                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m8.25 4.5 7.5 7.5-7.5 7.5"/></svg>
-                        </button>
+                        <h2 class="text-lg sm:text-xl font-bold text-gray-200 min-w-0 truncate">Writing conversation</h2>
+                        <div class="flex items-center gap-1 shrink-0">
+                            <button type="button" id="context-open-btn" class="context-open-btn" onclick="openPromptFiles()">Context</button>
+                            <button type="button" onclick="clearChat('writing')" class="text-[11px] text-gray-400 hover:text-white px-1">Clear chat</button>
+                            <button type="button" class="icon-btn chat-collapse-btn" onclick="toggleChatPane()" title="Collapse conversation" aria-label="Collapse conversation">
+                                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m8.25 4.5 7.5 7.5-7.5 7.5"/></svg>
+                            </button>
+                        </div>
                     </div>
                     <div id="chat-messages" class="flex-1 bg-gray-800 rounded-lg border border-gray-700 p-4 overflow-y-auto space-y-4 min-h-0">
                         <div class="chat-bubble bg-gray-700/60 p-3 rounded-lg max-w-xl text-sm border border-gray-600">
@@ -213,18 +245,29 @@
                             <textarea
                                 id="chat-input"
                                 rows="1"
+                                enterkeyhint="enter"
+                                autocomplete="off"
                                 placeholder="Ask AI or instruct edits…"
                                 class="auto-expand w-full bg-gray-900 text-gray-100 placeholder-gray-500 focus:outline-none text-xs sm:text-sm leading-relaxed block"
                             ></textarea>
                         </div>
-                        <button
-                            id="send-chat-btn"
-                            type="button"
-                            onclick="submitChat('writing')"
-                            class="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs sm:text-sm font-medium rounded-lg shadow shrink-0"
-                        >
-                            Send
-                        </button>
+                        <div class="composer-send flex flex-col items-stretch gap-1 shrink-0">
+                            <button type="button" id="file-lock-toggle" class="preview-switch file-lock-switch" role="switch" aria-checked="false" onclick="toggleFileLock()" title="Replies can change the open file">
+                                <span>Lock file</span>
+                                <span class="preview-switch-control" aria-hidden="true">
+                                    <span class="preview-switch-track"></span>
+                                    <span class="preview-switch-thumb"></span>
+                                </span>
+                            </button>
+                            <button
+                                id="send-chat-btn"
+                                type="button"
+                                onclick="submitChat('writing')"
+                                class="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs sm:text-sm font-medium rounded-lg shadow shrink-0"
+                            >
+                                Send
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -272,34 +315,15 @@
         <div class="diff-dialog bg-gray-800 border border-gray-600 rounded-lg w-full max-w-6xl max-h-[92vh] flex flex-col shadow-2xl">
             <div class="px-4 py-3 border-b border-gray-700 flex items-center justify-between gap-2 flex-wrap">
                 <h3 class="text-sm font-semibold text-gray-100">Compare files</h3>
-                <div class="flex items-center gap-3 text-[11px] text-gray-300">
+                <div class="flex items-center gap-3 text-[11px] text-gray-300 flex-wrap">
+                    <button type="button" onclick="diffGo(-1)" class="px-2 py-1 rounded-md bg-gray-700 text-gray-200 hover:bg-gray-600">Previous</button>
+                    <button type="button" onclick="diffGo(1)" class="px-2 py-1 rounded-md bg-gray-700 text-gray-200 hover:bg-gray-600">Next</button>
                     <label class="flex items-center gap-1"><input id="diff-ignore-case" type="checkbox" onchange="refreshDiffView()"> Ignore case</label>
                     <label class="flex items-center gap-1"><input id="diff-ignore-space" type="checkbox" onchange="refreshDiffView()"> Ignore whitespace</label>
                 </div>
             </div>
             <p id="diff-status" class="px-4 py-2 text-xs text-gray-300 border-b border-gray-700"></p>
-            <div class="diff-panes">
-                <div class="diff-side">
-                    <div id="diff-left-name" class="diff-name"></div>
-                    <div class="diff-editor-wrap">
-                        <pre id="diff-left-hl" class="diff-hl" aria-hidden="true"></pre>
-                        <textarea id="diff-left-edit" class="diff-edit" spellcheck="false"></textarea>
-                    </div>
-                </div>
-                <div class="diff-mid">
-                    <div class="diff-name diff-mid-head" aria-hidden="true"></div>
-                    <div id="diff-gutter" class="diff-gutter">
-                        <div id="diff-gutter-inner" class="diff-gutter-inner"></div>
-                    </div>
-                </div>
-                <div class="diff-side">
-                    <div id="diff-right-name" class="diff-name"></div>
-                    <div class="diff-editor-wrap">
-                        <pre id="diff-right-hl" class="diff-hl" aria-hidden="true"></pre>
-                        <textarea id="diff-right-edit" class="diff-edit" spellcheck="false"></textarea>
-                    </div>
-                </div>
-            </div>
+            <div id="diff-host" class="diff-host"></div>
             <div class="px-4 py-3 border-t border-gray-700 flex justify-end gap-2 flex-wrap">
                 <button type="button" onclick="saveDiffSide('left')" class="px-3 py-1.5 text-xs rounded-md bg-gray-700 text-gray-200 hover:bg-gray-600">Save left</button>
                 <button type="button" onclick="saveDiffSide('right')" class="px-3 py-1.5 text-xs rounded-md bg-gray-700 text-gray-200 hover:bg-gray-600">Save right</button>
@@ -365,8 +389,14 @@
                         <button type="button" onclick="renameHistoryLabel()" class="px-3 py-1.5 text-xs rounded-md bg-gray-700 text-gray-200 hover:bg-gray-600">Rename</button>
                         <button type="button" onclick="restoreHistoryVersion()" class="px-3 py-1.5 text-xs rounded-md bg-indigo-600 text-white hover:bg-indigo-500">Restore</button>
                     </div>
+                    <div class="flex items-center gap-3 flex-wrap px-3 py-2 border-b border-gray-700 text-[11px] text-gray-300">
+                        <button type="button" onclick="historyGo(-1)" class="px-2 py-1 rounded-md bg-gray-700 text-gray-200 hover:bg-gray-600">Previous</button>
+                        <button type="button" onclick="historyGo(1)" class="px-2 py-1 rounded-md bg-gray-700 text-gray-200 hover:bg-gray-600">Next</button>
+                        <label class="flex items-center gap-1"><input id="history-ignore-case" type="checkbox" onchange="refreshHistoryDiff()"> Ignore case</label>
+                        <label class="flex items-center gap-1"><input id="history-ignore-space" type="checkbox" onchange="refreshHistoryDiff()"> Ignore whitespace</label>
+                    </div>
                     <p id="history-status" class="px-3 py-1 text-[11px] text-gray-400"></p>
-                    <pre id="history-text" class="history-text"></pre>
+                    <div id="history-host" class="diff-host"></div>
                 </div>
             </div>
         </div>
@@ -389,6 +419,37 @@
         </form>
     </div>
 
+    <div id="prompt-files-modal" class="modal-overlay fixed inset-0 z-[58] hidden items-center justify-center p-4">
+        <div class="prompt-files-dialog bg-gray-800 border border-gray-600 rounded-lg w-full flex flex-col shadow-2xl">
+            <div class="px-4 py-3 border-b border-gray-700 flex items-start justify-between gap-3">
+                <div class="min-w-0">
+                    <h3 class="text-sm font-semibold text-gray-100">Prompt files</h3>
+                    <p class="text-xs text-gray-400 mt-1">These files are pasted into every message, after the open file. Order is the order in the prompt. Put the file you are asking about last.</p>
+                </div>
+                <button type="button" onclick="closePromptFiles()" class="px-2 py-1 text-xs rounded-md bg-gray-700 text-gray-200 hover:bg-gray-600 shrink-0">Close</button>
+            </div>
+            <div class="prompt-files-board px-4 py-3">
+                <div class="prompt-files-available min-w-0 flex flex-col">
+                    <p class="text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-1">Available</p>
+                    <ul id="prompt-available" class="prompt-file-list" role="listbox" aria-label="Available files"></ul>
+                </div>
+                <div class="prompt-file-arrows prompt-files-between">
+                    <button type="button" id="prompt-add" onclick="addPromptFile()" aria-label="Add to prompt" title="Add to prompt" disabled>&gt;</button>
+                    <button type="button" id="prompt-remove" onclick="removePromptFile()" aria-label="Remove from prompt" title="Remove from prompt" disabled>&lt;</button>
+                </div>
+                <div class="prompt-files-selected min-w-0 flex flex-col">
+                    <p class="text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-1">In the prompt</p>
+                    <ul id="prompt-selected" class="prompt-file-list" role="listbox" aria-label="Files in the prompt"></ul>
+                </div>
+                <div class="prompt-file-arrows prompt-files-reorder">
+                    <button type="button" id="prompt-up" onclick="movePromptFile(-1)" aria-label="Move up" title="Move up" disabled>Up</button>
+                    <button type="button" id="prompt-down" onclick="movePromptFile(1)" aria-label="Move down" title="Move down" disabled>Down</button>
+                </div>
+            </div>
+            <p id="prompt-files-summary" class="px-4 pb-4 text-xs text-gray-400">Open file is always included.</p>
+        </div>
+    </div>
+
     <div id="context-menu" class="context-menu hidden"></div>
 
     <!-- JAVASCRIPT LOGIC -->
@@ -397,10 +458,24 @@
         let isSidebarOpen = localStorage.getItem('writer-files-open') !== 'false';
         let currentFilePath = '';
         let lastSavedContent = '';
+        let promptFileCatalog = null;
+        let promptHighlight = { available: '', selected: '' };
+        let promptFilesSaving = false;
+        let fileLocked = localStorage.getItem('writer-file-lock') === 'true';
         let saveTimer = null;
         let materializePromise = null;
         let autosaveInFlight = false;
         let pendingAutosave = false;
+        let currentEncrypted = false;
+        let currentEnvelope = '';
+        let currentRevision = '';
+        let encryptedSessionOpened = false;
+        let privateChatMode = false;
+        let secureGeneration = 0;
+        let lastSecureActivity = Date.now();
+        let hiddenSince = 0;
+        let secureIdleTimer = null;
+        const ephemeralChats = { writing: [], todos: [] };
         const UNTITLED_NAME = 'untitled.md';
         let renameOpenedAt = 0;
         let knownFolders = [''];
@@ -411,9 +486,7 @@
         let treeSelection = new Map();
         let lastTreeAnchor = null;
         let mergeOrder = [];
-        let diffState = { leftPath: '', rightPath: '', hunks: [] };
-        let diffRefreshTimer = null;
-        let diffScrollLock = false;
+        let diffState = { leftPath: '', rightPath: '' };
         let pendingConflict = null;
         let folderModal = null;
         let todoItems = [];
@@ -510,9 +583,160 @@
             });
         }
 
-        function setCurrentFile(path, content, { saved = true } = {}) {
+        function syncEncryptionButtons() {
+            const encryptBtn = document.getElementById('encrypt-file-btn');
+            const lockBtn = document.getElementById('secure-lock-btn');
+            if (encryptBtn) encryptBtn.textContent = currentEncrypted ? 'Decrypt' : 'Encrypt';
+            if (lockBtn) lockBtn.classList.toggle('hidden', !currentEncrypted || !WriterCrypto.recall(currentFilePath));
+            const historyBtn = document.getElementById('history-open-btn');
+            if (historyBtn) historyBtn.disabled = currentEncrypted;
+        }
+
+        function askPassphrase(confirmValue = false, label = 'File passphrase') {
+            const first = window.prompt(`${label} (at least ${WriterCrypto.MIN_PASSPHRASE} characters)`);
+            if (first == null) return null;
+            if (first.length < WriterCrypto.MIN_PASSPHRASE) {
+                alert(`Passphrase must be at least ${WriterCrypto.MIN_PASSPHRASE} characters.`);
+                return null;
+            }
+            if (confirmValue) {
+                const second = window.prompt('Confirm file passphrase');
+                if (second !== first) {
+                    alert('Passphrases do not match.');
+                    return null;
+                }
+            }
+            return first;
+        }
+
+        async function clearChat(channel, quiet = false) {
+            ephemeralChats[channel] = [];
+            renderChatHistory(channel, []);
+            if (privateChatMode) return true;
+            try {
+                const res = await fetch('/api/chat/clear', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ vault: currentVault(), channel }),
+                    keepalive: true,
+                });
+                if (!res.ok) throw new Error('Clear failed');
+                return true;
+            } catch (error) {
+                if (!quiet) alert('Could not clear chat.');
+                return false;
+            }
+        }
+
+        async function clearAllChat(quiet = false) {
+            ephemeralChats.writing = [];
+            ephemeralChats.todos = [];
+            renderChatHistory('writing', []);
+            renderChatHistory('todos', []);
+            try {
+                const res = await fetch('/api/chat/clear-all', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ vault: currentVault(), channel: 'writing' }),
+                    keepalive: true,
+                });
+                if (!res.ok) throw new Error('Clear failed');
+                return true;
+            } catch (error) {
+                if (!quiet) alert('Could not clear chat; encrypted note remains locked.');
+                return false;
+            }
+        }
+
+        function blankSensitiveUi() {
+            editor.value = '';
+            document.getElementById('markdown-preview').innerHTML = '';
+            document.getElementById('extract-content').value = '';
+            if (window.WriterCompare) {
+                try { WriterCompare.destroy(diffHost()); } catch (_error) {}
+                try { WriterCompare.destroy(historyHost()); } catch (_error) {}
+            }
+            updateEditorStats(true);
+        }
+
+        function lockEncryptedSession(reason = 'locked') {
+            if (!encryptedSessionOpened && !currentEncrypted && WriterCrypto.keyCount() === 0) return;
+            secureGeneration += 1;
+            clearTimeout(saveTimer);
+            saveTimer = null;
+            pendingAutosave = false;
+            WriterCrypto.forgetAll();
+            blankSensitiveUi();
+            lastSavedContent = null;
+            setSaveStatus(`Locked (${reason})`, 'text-amber-400');
+            syncEncryptionButtons();
+            if (encryptedSessionOpened) clearAllChat(true);
+        }
+
+        function secureLogout(event) {
+            if (event) event.preventDefault();
+            lockEncryptedSession('logout');
+            window.location.href = '/logout';
+            return false;
+        }
+
+        function noteSecureActivity() {
+            if (document.visibilityState === 'visible') lastSecureActivity = Date.now();
+        }
+
+        function enforceSecureTimeout() {
+            if (WriterCrypto.keyCount() === 0) return;
+            const now = Date.now();
+            const elapsed = hiddenSince ? now - hiddenSince : now - lastSecureActivity;
+            if (elapsed >= 5 * 60 * 1000) lockEncryptedSession(hiddenSince ? 'away' : 'idle');
+        }
+
+        async function unlockEnvelope(path, envelope, fileId) {
+            const statusRes = await fetch(`/api/file/unlock-status?vault=${encodeURIComponent(currentVault())}&file_id=${encodeURIComponent(fileId)}`);
+            const status = statusRes.ok ? await statusRes.json() : {};
+            if (status.blocked) {
+                alert(`Try again in ${Math.ceil((status.retry_after || 0) / 60)} minute(s).`);
+                return null;
+            }
+            const passphrase = askPassphrase(false, 'Unlock passphrase');
+            if (!passphrase) return null;
+            let opened;
+            try {
+                opened = await WriterCrypto.open(envelope, passphrase);
+            } catch (_error) {
+                const failed = await fetch('/api/file/unlock-failure', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ vault: currentVault(), file_id: fileId }),
+                }).then(res => res.json()).catch(() => ({}));
+                alert(`Could not unlock file. Try again in ${Math.ceil((failed.retry_after || 60) / 60)} minute(s).`);
+                if ((failed.failures || 0) >= 10) secureLogout();
+                return null;
+            }
+            if (!encryptedSessionOpened && !(await clearAllChat())) return null;
+            const unlockProof = await WriterCrypto.deletionVerifier(passphrase, opened.record);
+            const resetResponse = await fetch('/api/file/unlock-success', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ vault: currentVault(), file_id: fileId, proof: unlockProof }),
+            });
+            if (!resetResponse.ok) {
+                alert('Could not finish unlock. The note remains locked.');
+                return null;
+            }
+            encryptedSessionOpened = true;
+            privateChatMode = true;
+            WriterCrypto.remember(path, opened.record);
+            lastSecureActivity = Date.now();
+            return opened.plaintext;
+        }
+
+        function setCurrentFile(path, content, { saved = true, encrypted = false, envelope = '', revision = '' } = {}) {
             currentFilePath = path || '';
             editor.value = content ?? '';
+            currentEncrypted = !!encrypted;
+            currentEnvelope = envelope || '';
+            currentRevision = revision || '';
             lastSavedContent = saved ? editor.value : null;
             if (currentFilePath) {
                 expandAncestors(currentFilePath);
@@ -524,6 +748,7 @@
             updateEditorStats(true);
             if (previewOn) renderMarkdownPreview();
             if (!document.getElementById('find-bar').classList.contains('hidden')) refreshFindMatches();
+            syncEncryptionButtons();
         }
 
         async function restoreLastFile() {
@@ -537,13 +762,28 @@
                     return;
                 }
                 const data = await res.json();
-                setCurrentFile(data.filename || path, data.content, { saved: true });
+                if (data.encrypted) {
+                    const plaintext = await unlockEnvelope(data.filename || path, data.content, data.file_id);
+                    if (plaintext == null) {
+                        setCurrentFile(data.filename || path, '', {
+                            saved: true, encrypted: true, envelope: data.content, revision: data.revision
+                        });
+                        setSaveStatus('Locked', 'text-amber-400');
+                        return;
+                    }
+                    setCurrentFile(data.filename || path, plaintext, {
+                        saved: true, encrypted: true, envelope: data.content, revision: data.revision
+                    });
+                } else {
+                    setCurrentFile(data.filename || path, data.content, { saved: true, revision: data.revision });
+                }
             } catch (e) {
                 rememberOpenFile('');
             }
         }
 
         function switchTab(tabName, options = {}) {
+            restoreIsolatedFields();
             if (tabName === 'conversation' && isLandscapeChat()) {
                 setChatOpen(true);
                 if (!options.skipHistory) loadChatHistory('writing');
@@ -569,6 +809,8 @@
                 if (!options.skipHistory) loadChatHistory('todos');
             }
             if (tabName === 'conversation' && !options.skipHistory) loadChatHistory('writing');
+            const active = document.activeElement;
+            if (active === editor || active === chatInput || active === guppyInput) isolateField(active);
         }
 
         function applyFilesPane() {
@@ -631,16 +873,9 @@
                 const calculatedHeight = Math.min(this.scrollHeight, 120);
                 this.style.height = `${calculatedHeight}px`;
                 this.style.overflowY = this.scrollHeight > 120 ? 'auto' : 'hidden';
-                if (WriterComposer.doubleEnterSends(this.value, composerEnv())) {
-                    this.value = this.value.replace(/\n+$/, '');
-                    this.style.height = 'auto';
-                    this.style.overflowY = 'hidden';
-                    submitChat(submitChannel);
-                }
             });
             el.addEventListener('keydown', function(e) {
-                if (e.key !== 'Enter' || e.shiftKey) return;
-                if (!isLandscapeChat() || !(e.ctrlKey || e.metaKey)) return;
+                if (!WriterComposer.shiftEnterSends(e.key, e.shiftKey, e.ctrlKey, e.metaKey, e.altKey)) return;
                 e.preventDefault();
                 submitChat(submitChannel);
             });
@@ -679,8 +914,11 @@
             const dock = document.getElementById('conversation-dock');
             const rail = document.getElementById('conversation-expand-btn');
             if (!dock || !rail) return;
-            document.body.classList.toggle('chat-landscape', isLandscapeChat());
-            if (!isLandscapeChat()) {
+            const landscape = isLandscapeChat();
+            document.body.classList.toggle('chat-landscape', landscape);
+            const editorTab = document.getElementById('tab-editor');
+            if (editorTab) editorTab.classList.toggle('chat-docked', landscape && chatOpen);
+            if (!landscape) {
                 dock.classList.add('hidden');
                 rail.classList.add('hidden');
                 return;
@@ -773,6 +1011,7 @@
                 return;
             }
             autosaveInFlight = true;
+            const generation = secureGeneration;
             try {
                 do {
                     pendingAutosave = false;
@@ -790,22 +1029,44 @@
                         continue;
                     }
                     setSaveStatus('Saving…', 'text-indigo-300');
+                    let diskContent = content;
+                    if (currentEncrypted) {
+                        const record = WriterCrypto.recall(currentFilePath);
+                        if (!record) {
+                            setSaveStatus('Locked', 'text-amber-400');
+                            return;
+                        }
+                        diskContent = await WriterCrypto.seal(record, content);
+                        if (generation !== secureGeneration) return;
+                    }
                     const res = await fetch('/api/file', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
                             vault: currentVault(),
                             file_path: currentFilePath,
-                            content
+                            content: diskContent,
+                            expected_revision: currentRevision || null
                         })
                     });
-                    if (!res.ok) throw new Error('Save failed');
+                    if (!res.ok) {
+                        const error = new Error('Save failed');
+                        error.network = res.status === 0 || res.status >= 500;
+                        throw error;
+                    }
+                    const result = await res.json();
+                    if (generation !== secureGeneration) return;
+                    if (currentEncrypted) currentEnvelope = diskContent;
+                    currentRevision = result.revision || currentRevision;
                     lastSavedContent = content;
                     setSaveStatus('Saved');
                     updateReadingTime();
                 } while (pendingAutosave);
             } catch (e) {
                 setSaveStatus('Save failed', 'text-red-400');
+                if (currentEncrypted && (!navigator.onLine || e.network || e instanceof TypeError)) {
+                    lockEncryptedSession('connection lost');
+                }
             } finally {
                 autosaveInFlight = false;
             }
@@ -827,6 +1088,7 @@
                 await loadFiles();
                 await restoreLastFile();
                 loadVisibleChatHistory();
+                loadPromptFiles();
             } catch (e) {
                 console.error('Failed to fetch vaults:', e);
             }
@@ -838,10 +1100,17 @@
         }
 
         function onVaultChange() {
+            lockEncryptedSession('vault changed');
             localStorage.setItem('writer-last-vault', currentVault());
             currentFilePath = '';
             lastSavedContent = '';
+            currentEncrypted = false;
+            currentEnvelope = '';
+            currentRevision = '';
             editor.value = '';
+            promptFileCatalog = null;
+            promptHighlight = { available: '', selected: '' };
+            updateContextButton();
             updateFilenameLabel();
             setSaveStatus('Unsaved', 'text-amber-400');
             const lastPath = rememberedFile();
@@ -856,6 +1125,7 @@
                 if (activeTab === 'conversation') loadChatHistory('writing');
                 if (isLandscapeChat()) loadChatHistory('writing');
             });
+            loadPromptFiles();
         }
 
         async function loadFiles() {
@@ -1091,10 +1361,35 @@
 
         async function openFile(filePath) {
             try {
+                if (currentEncrypted && editor.value !== lastSavedContent) await autosaveNow();
                 const res = await fetch(`/api/file?vault=${encodeURIComponent(currentVault())}&path=${encodeURIComponent(filePath)}`);
                 if (!res.ok) throw new Error('Could not read file');
                 const data = await res.json();
-                setCurrentFile(data.filename || filePath, data.content, { saved: true });
+                const targetPath = data.filename || filePath;
+                if (data.encrypted) {
+                    let record = WriterCrypto.recall(targetPath);
+                    let plaintext = null;
+                    if (record) {
+                        try {
+                            plaintext = (await WriterCrypto.openWithRecord(data.content, record)).plaintext;
+                        } catch (_error) {
+                            record = null;
+                        }
+                    }
+                    if (plaintext == null) plaintext = await unlockEnvelope(targetPath, data.content, data.file_id);
+                    if (plaintext == null) {
+                        setCurrentFile(targetPath, '', {
+                            saved: true, encrypted: true, envelope: data.content, revision: data.revision
+                        });
+                        setSaveStatus('Locked', 'text-amber-400');
+                    } else {
+                        setCurrentFile(targetPath, plaintext, {
+                            saved: true, encrypted: true, envelope: data.content, revision: data.revision
+                        });
+                    }
+                } else {
+                    setCurrentFile(targetPath, data.content, { saved: true, revision: data.revision });
+                }
                 if (activeTab !== 'editor') switchTab('editor');
             } catch (e) {
                 alert(`Error opening ${filePath}: ${e.message}`);
@@ -1461,6 +1756,114 @@
             editor.focus();
         }
 
+        async function createEncryptedFile(folder) {
+            hideContextMenu();
+            if (editor.value !== lastSavedContent || (!currentFilePath && editor.value)) await autosaveNow();
+            const passphrase = askPassphrase(true, 'New encrypted file passphrase');
+            if (!passphrase) return;
+            try {
+                const created = await WriterCrypto.create(passphrase, '');
+                const result = await postFileOp('/api/file/create', {
+                    vault: currentVault(),
+                    folder: folder || '',
+                    content: created.envelope,
+                    verifier: created.verifier,
+                });
+                if (!result) return;
+                WriterCrypto.remember(result.filename, created.record);
+                encryptedSessionOpened = true;
+                privateChatMode = true;
+                if (!(await clearAllChat())) {
+                    lockEncryptedSession('chat clear failed');
+                    return;
+                }
+                await loadFiles();
+                setCurrentFile(result.filename, '', {
+                    saved: true,
+                    encrypted: true,
+                    envelope: created.envelope,
+                    revision: result.revision,
+                });
+                editor.focus();
+            } catch (error) {
+                alert(error.message || 'Could not create encrypted file.');
+            }
+        }
+
+        async function toggleFileEncryption() {
+            if (!currentFilePath) {
+                await createEncryptedFile('');
+                return;
+            }
+            if (currentEncrypted) {
+                const record = WriterCrypto.recall(currentFilePath);
+                if (!record) {
+                    alert('Unlock this file before decrypting it.');
+                    return;
+                }
+                if (!confirm('Decrypt this file to normal Markdown? Future saves and history will be readable on disk.')) return;
+                const res = await fetch('/api/file/decrypt', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        vault: currentVault(),
+                        file_path: currentFilePath,
+                        content: editor.value,
+                        expected_revision: currentRevision,
+                        confirmed: true,
+                    }),
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    alert(data.detail || 'Could not decrypt file.');
+                    return;
+                }
+                WriterCrypto.forget(currentFilePath);
+                currentEncrypted = false;
+                currentEnvelope = '';
+                currentRevision = data.revision || '';
+                lastSavedContent = editor.value;
+                syncEncryptionButtons();
+                setSaveStatus('Saved');
+                return;
+            }
+            const warning = 'Encrypt this existing note? ALL WriterSystem history for this vault and local plaintext Syncthing versions of this note will be permanently deleted. Remote device copies must be cleaned separately.';
+            if (!confirm(warning)) return;
+            const passphrase = askPassphrase(true, 'Encryption passphrase');
+            if (!passphrase) return;
+            try {
+                const created = await WriterCrypto.create(passphrase, editor.value);
+                const res = await fetch('/api/file/convert', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        vault: currentVault(),
+                        file_path: currentFilePath,
+                        content: created.envelope,
+                        verifier: created.verifier,
+                        confirmed: true,
+                    }),
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) throw new Error(data.detail || 'Conversion failed');
+                WriterCrypto.remember(currentFilePath, created.record);
+                currentEncrypted = true;
+                currentEnvelope = created.envelope;
+                currentRevision = data.revision;
+                lastSavedContent = editor.value;
+                encryptedSessionOpened = true;
+                privateChatMode = true;
+                if (!(await clearAllChat())) {
+                    lockEncryptedSession('chat clear failed');
+                    return;
+                }
+                syncEncryptionButtons();
+                setSaveStatus('Saved');
+            } catch (error) {
+                alert(error.message || 'Could not encrypt file.');
+            }
+        }
+
         async function createNewFolder(folder) {
             hideContextMenu();
             const result = await postFileOp('/api/file/mkdir', {
@@ -1695,11 +2098,16 @@
             if (!currentFilePath || !newPath) return;
             if (kind === 'folder') {
                 if (currentFilePath === oldPath || currentFilePath.startsWith(`${oldPath}/`)) {
+                    const previous = currentFilePath;
                     currentFilePath = `${newPath}${currentFilePath.slice(oldPath.length)}`;
+                    WriterCrypto.moveKey(previous, currentFilePath);
                 }
                 return;
             }
-            if (currentFilePath === oldPath) currentFilePath = newPath;
+            if (currentFilePath === oldPath) {
+                WriterCrypto.moveKey(oldPath, newPath);
+                currentFilePath = newPath;
+            }
         }
 
         function openFolderModal(action, pathOrPaths) {
@@ -1779,8 +2187,10 @@
             const count = files.length + folders.length;
             if (!count) return;
             if (!confirm(count === 1
-                ? `Delete ${folders.length ? `folder "${folders[0]}" and everything inside it` : fileNameOf(files[0])}?`
-                : `Delete ${count} items?`)) return;
+                ? `Delete ${folders.length ? `folder "${folders[0]}" and everything inside it` : fileNameOf(files[0])}? Syncthing may propagate this deletion.`
+                : `Delete ${count} items? Syncthing may propagate these deletions.`)) return;
+            const loginPassword = window.prompt('Current WriterSystem password');
+            if (loginPassword == null) return;
             const clearIfGone = (path, isFolder) => {
                 if (!currentFilePath) return;
                 const gone = isFolder
@@ -1795,30 +2205,109 @@
                 setSaveStatus('Unsaved', 'text-amber-400');
                 updateEditorStats(true);
             };
-            for (const path of files) {
-                const res = await fetch(`/api/file?vault=${encodeURIComponent(currentVault())}&path=${encodeURIComponent(path)}`, { method: 'DELETE' });
-                if (!res.ok) {
-                    alert(`Could not delete ${fileNameOf(path)}`);
+            for (const item of [
+                ...files.map(path => ({ path, folder: false })),
+                ...folders.map(path => ({ path, folder: true })),
+            ]) {
+                const manifestRes = await fetch('/api/file/delete-manifest', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ vault: currentVault(), path: item.path }),
+                });
+                const manifest = await manifestRes.json().catch(() => ({}));
+                if (!manifestRes.ok) {
+                    alert(manifest.detail || `Could not prepare deletion of ${item.path}`);
                     break;
                 }
-                clearIfGone(path, false);
-            }
-            for (const path of folders) {
-                const res = await fetch(`/api/file?vault=${encodeURIComponent(currentVault())}&path=${encodeURIComponent(path)}`, { method: 'DELETE' });
+                const proofs = {};
+                let proofFailed = false;
+                for (const fileId of (manifest.encrypted_ids || [])) {
+                    const entry = (manifest.entries || []).find(row => row.file_id === fileId);
+                    if (!entry) { proofFailed = true; break; }
+                    const throttle = await fetch(`/api/file/unlock-status?vault=${encodeURIComponent(currentVault())}&file_id=${encodeURIComponent(fileId)}`)
+                        .then(response => response.ok ? response.json() : ({}))
+                        .catch(() => ({}));
+                    if (throttle.blocked) {
+                        alert(`Passphrase for ${entry.path} is locked. Try again in ${Math.ceil((throttle.retry_after || 0) / 60)} minute(s).`);
+                        proofFailed = true;
+                        break;
+                    }
+                    const fetched = await fetch(`/api/file?vault=${encodeURIComponent(currentVault())}&path=${encodeURIComponent(entry.path)}`);
+                    const fileData = await fetched.json().catch(() => ({}));
+                    const passphrase = askPassphrase(false, `Passphrase for ${entry.path}`);
+                    if (!passphrase) { proofFailed = true; break; }
+                    try {
+                        const opened = await WriterCrypto.open(fileData.content, passphrase);
+                        proofs[fileId] = await WriterCrypto.deletionVerifier(passphrase, opened.record);
+                    } catch (_error) {
+                        const failed = await fetch('/api/file/unlock-failure', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ vault: currentVault(), file_id: fileId }),
+                        }).then(response => response.json()).catch(() => ({}));
+                        alert(`Wrong passphrase for ${entry.path}`);
+                        if ((failed.failures || 0) >= 10) secureLogout();
+                        proofFailed = true;
+                        break;
+                    }
+                }
+                if (proofFailed) break;
+                const affectsOpen = currentFilePath && (
+                    currentFilePath === item.path || (item.folder && currentFilePath.startsWith(`${item.path}/`))
+                );
+                if (affectsOpen && currentEncrypted) {
+                    lockEncryptedSession('deleted');
+                    if (!(await clearAllChat())) break;
+                }
+                const res = await fetch('/api/file/delete-confirmed', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        vault: currentVault(),
+                        path: item.path,
+                        login_password: loginPassword,
+                        manifest: manifest.manifest,
+                        proofs,
+                    }),
+                });
+                const data = await res.json().catch(() => ({}));
                 if (!res.ok) {
-                    alert(`Could not delete folder ${path}`);
+                    alert(data.detail || `Could not delete ${item.path}`);
                     break;
                 }
-                clearIfGone(path, true);
+                clearIfGone(item.path, item.folder);
             }
             treeSelection.clear();
             await loadFiles();
         }
 
-        function downloadFiles(paths) {
+        async function downloadFiles(paths) {
             hideContextMenu();
             const list = (Array.isArray(paths) ? paths : [paths]).filter(Boolean);
             for (const path of list) {
+                const response = await fetch(`/api/file?vault=${encodeURIComponent(currentVault())}&path=${encodeURIComponent(path)}`);
+                const data = await response.json().catch(() => ({}));
+                if (response.ok && data.encrypted) {
+                    if (!confirm(`Download a readable copy of ${fileNameOf(path)}?`)) continue;
+                    let record = WriterCrypto.recall(path);
+                    let plaintext = null;
+                    try {
+                        if (record) plaintext = (await WriterCrypto.openWithRecord(data.content, record)).plaintext;
+                        else plaintext = await unlockEnvelope(path, data.content, data.file_id);
+                    } catch (_error) {
+                        plaintext = null;
+                    }
+                    if (plaintext == null) continue;
+                    const url = URL.createObjectURL(new Blob([plaintext], { type: 'text/markdown;charset=utf-8' }));
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = fileNameOf(path);
+                    document.body.appendChild(a);
+                    a.click();
+                    a.remove();
+                    setTimeout(() => URL.revokeObjectURL(url), 0);
+                    continue;
+                }
                 const a = document.createElement('a');
                 a.href = `/api/file/download?vault=${encodeURIComponent(currentVault())}&path=${encodeURIComponent(path)}`;
                 a.download = fileNameOf(path);
@@ -1833,169 +2322,82 @@
             const res = await fetch(`/api/file?vault=${encodeURIComponent(currentVault())}&path=${encodeURIComponent(path)}`);
             if (!res.ok) throw new Error(`Could not read ${path}`);
             const data = await res.json();
+            if (data.encrypted) {
+                const record = WriterCrypto.recall(path);
+                if (record) return (await WriterCrypto.openWithRecord(data.content, record)).plaintext;
+                const plaintext = await unlockEnvelope(path, data.content, data.file_id);
+                if (plaintext == null) throw new Error(`Could not unlock ${path}`);
+                return plaintext;
+            }
             return data.content || '';
         }
 
-        function lineAtCursor(textarea) {
-            const value = textarea.value || '';
-            const index = textarea.selectionStart || 0;
-            const start = value.lastIndexOf('\n', index - 1) + 1;
-            let end = value.indexOf('\n', index);
-            if (end < 0) end = value.length;
-            return value.slice(start, end);
+        function diffHost() {
+            return document.getElementById('diff-host');
         }
 
-        function diffLineMetrics(textarea) {
-            const style = window.getComputedStyle(textarea);
-            let lineHeight = parseFloat(style.lineHeight);
-            if (!lineHeight || Number.isNaN(lineHeight)) {
-                lineHeight = parseFloat(style.fontSize) * 1.5;
-            }
-            return {
-                lineHeight,
-                paddingTop: parseFloat(style.paddingTop) || 0,
-            };
-        }
-
-        function offsetToY(textarea, offset) {
-            const { lineHeight, paddingTop } = diffLineMetrics(textarea);
-            const line = (textarea.value || '').slice(0, Math.max(0, offset)).split('\n').length - 1;
-            return paddingTop + line * lineHeight;
-        }
-
-        function layoutDiffGutter() {
-            const left = document.getElementById('diff-left-edit');
-            const right = document.getElementById('diff-right-edit');
-            const inner = document.getElementById('diff-gutter-inner');
-            const gutter = document.getElementById('diff-gutter');
-            if (!left || !right || !inner || !gutter) return;
-            inner.style.height = `${Math.max(left.scrollHeight, right.scrollHeight, gutter.clientHeight)}px`;
-            const { lineHeight } = diffLineMetrics(left);
-            const pairHeight = Math.max(16, lineHeight);
-            let lastBottom = 0;
-            inner.innerHTML = (diffState.hunks || []).map((hunk, idx) => {
-                const yLeft = offsetToY(left, hunk.leftStart);
-                const yRight = offsetToY(right, hunk.rightStart);
-                let y = hunk.leftText ? yLeft : yRight;
-                if (y < lastBottom) y = lastBottom;
-                lastBottom = y + pairHeight;
-                return `<div class="diff-arrow-pair" data-hunk="${idx}" style="top:${y}px">
-                    <button type="button" class="diff-copy" data-copy="rtl" data-hunk="${idx}" title="Copy right to left" aria-label="Copy right to left">
-                        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M10.5 3.5 5.5 8l5 4.5"/></svg>
-                    </button>
-                    <button type="button" class="diff-copy" data-copy="ltr" data-hunk="${idx}" title="Copy left to right" aria-label="Copy left to right">
-                        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M5.5 3.5 10.5 8l-5 4.5"/></svg>
-                    </button>
-                </div>`;
-            }).join('');
-            inner.querySelectorAll('[data-copy]').forEach((btn) => {
-                btn.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    copyDiffHunk(Number(btn.dataset.hunk), btn.dataset.copy);
-                });
-            });
-            inner.querySelectorAll('.diff-arrow-pair').forEach((pair) => {
-                pair.addEventListener('click', (e) => {
-                    if (e.target.closest('[data-copy]')) return;
-                    const hunk = diffState.hunks[Number(pair.dataset.hunk)];
-                    if (!hunk) return;
-                    left.setSelectionRange(hunk.leftStart, Math.max(hunk.leftStart, hunk.leftEnd));
-                    right.setSelectionRange(hunk.rightStart, Math.max(hunk.rightStart, hunk.rightEnd));
-                    updateLineCompare();
-                });
-            });
-            gutter.scrollTop = left.scrollTop;
-        }
-
-        function updateLineCompare() {
-            const batch = window.WriterBatch;
-            const left = document.getElementById('diff-left-edit');
-            const right = document.getElementById('diff-right-edit');
+        function updateDiffStatus() {
             const status = document.getElementById('diff-status');
-            if (!batch || !left || !right || !status || !diffState.hunks || !diffState.hunks.length) return;
-            const ignoreCase = document.getElementById('diff-ignore-case').checked;
-            const ignoreSpace = document.getElementById('diff-ignore-space').checked;
-            const html = batch.charCompare(lineAtCursor(left), lineAtCursor(right), ignoreCase, ignoreSpace);
-            const count = `${diffState.hunks.length} difference${diffState.hunks.length === 1 ? '' : 's'} found.`;
-            status.innerHTML = `${escapeHtml(count)} <span class="diff-status-lines">${html}</span>`;
+            const compare = window.WriterCompare;
+            if (!status || !compare) return;
+            const count = compare.chunkCount(diffHost());
+            status.textContent = count
+                ? `${count} difference${count === 1 ? '' : 's'} found.`
+                : 'These files are identical.';
         }
 
         function refreshDiffView() {
-            const batch = window.WriterBatch;
-            const left = document.getElementById('diff-left-edit').value;
-            const right = document.getElementById('diff-right-edit').value;
-            const ignoreCase = document.getElementById('diff-ignore-case').checked;
-            const ignoreSpace = document.getElementById('diff-ignore-space').checked;
+            const compare = window.WriterCompare;
             const status = document.getElementById('diff-status');
-            if (!batch) {
-                status.textContent = 'Diff library failed to load.';
+            if (!compare) {
+                if (status) status.textContent = 'Compare view failed to load.';
                 return;
             }
-            const result = batch.buildHunks(left, right, ignoreCase, ignoreSpace);
-            diffState.hunks = result.hunks || [];
-            document.getElementById('diff-left-hl').innerHTML = batch.highlightSide(result.parts, 'left');
-            document.getElementById('diff-right-hl').innerHTML = batch.highlightSide(result.parts, 'right');
-            if (result.error) {
-                status.textContent = result.error;
-            } else if (result.identical) {
-                status.textContent = 'These files are identical.';
-            } else {
-                status.textContent = `${diffState.hunks.length} difference${diffState.hunks.length === 1 ? '' : 's'} found.`;
+            const ignoreCase = document.getElementById('diff-ignore-case').checked;
+            const ignoreSpace = document.getElementById('diff-ignore-space').checked;
+            try {
+                compare.setIgnore(diffHost(), ignoreCase, ignoreSpace);
+                updateDiffStatus();
+            } catch (err) {
+                if (status) status.textContent = err.message || 'Could not update the compare view';
             }
-            requestAnimationFrame(layoutDiffGutter);
-            updateLineCompare();
         }
 
-        function scheduleDiffRefresh() {
-            clearTimeout(diffRefreshTimer);
-            diffRefreshTimer = setTimeout(refreshDiffView, 120);
-        }
-
-        function copyDiffHunk(index, direction) {
-            const hunk = diffState.hunks[index];
-            if (!hunk) return;
-            const left = document.getElementById('diff-left-edit');
-            const right = document.getElementById('diff-right-edit');
-            if (direction === 'ltr') {
-                right.value = right.value.slice(0, hunk.rightStart) + hunk.leftText + right.value.slice(hunk.rightEnd);
-            } else {
-                left.value = left.value.slice(0, hunk.leftStart) + hunk.rightText + left.value.slice(hunk.leftEnd);
-            }
-            refreshDiffView();
+        function diffGo(direction) {
+            if (window.WriterCompare) window.WriterCompare.go(diffHost(), direction);
         }
 
         async function openDiffModal(leftPath, rightPath) {
             hideContextMenu();
             cancelCompare();
-            if (!window.Diff || !window.WriterBatch) {
-                alert('Diff library failed to load.');
+            if (!window.WriterCompare) {
+                alert('Compare view failed to load.');
                 return;
             }
             try {
                 const [leftText, rightText] = await Promise.all([fetchFileText(leftPath), fetchFileText(rightPath)]);
                 diffState.leftPath = leftPath;
                 diffState.rightPath = rightPath;
-                document.getElementById('diff-left-name').textContent = leftPath;
-                document.getElementById('diff-right-name').textContent = rightPath;
-                document.getElementById('diff-left-edit').value = leftText;
-                document.getElementById('diff-right-edit').value = rightText;
                 const modal = document.getElementById('diff-modal');
                 modal.classList.remove('hidden');
                 modal.classList.add('flex');
-                refreshDiffView();
-                focusFirstDiff();
+                const ignoreCase = document.getElementById('diff-ignore-case').checked;
+                const ignoreSpace = document.getElementById('diff-ignore-space').checked;
+                window.WriterCompare.mountPair(diffHost(), {
+                    a: leftText,
+                    b: rightText,
+                    aLabel: leftPath,
+                    bLabel: rightPath,
+                    readOnly: false,
+                    revert: true,
+                    ignoreCase,
+                    ignoreSpace,
+                    onChange: updateDiffStatus,
+                });
+                updateDiffStatus();
             } catch (err) {
                 alert(err.message || 'Could not compare files');
             }
-        }
-
-        function focusFirstDiff() {
-            const left = document.getElementById('diff-left-edit');
-            const right = document.getElementById('diff-right-edit');
-            const hunk = (diffState.hunks || [])[0];
-            if (left) left.setSelectionRange(hunk ? hunk.leftStart : 0, hunk ? hunk.leftStart : 0);
-            if (right) right.setSelectionRange(hunk ? hunk.rightStart : 0, hunk ? hunk.rightStart : 0);
-            updateLineCompare();
         }
 
         let compareSource = null;
@@ -2015,6 +2417,7 @@
         }
 
         function closeDiffModal() {
+            if (window.WriterCompare) window.WriterCompare.destroy(diffHost());
             const modal = document.getElementById('diff-modal');
             modal.classList.add('hidden');
             modal.classList.remove('flex');
@@ -2022,11 +2425,32 @@
 
         async function saveDiffSide(side) {
             const path = side === 'left' ? diffState.leftPath : diffState.rightPath;
-            const content = document.getElementById(side === 'left' ? 'diff-left-edit' : 'diff-right-edit').value;
+            const compare = window.WriterCompare;
+            if (!compare) {
+                alert('Compare view failed to load.');
+                return;
+            }
+            const content = compare.text(diffHost(), side === 'left' ? 'a' : 'b');
+            const metadataRes = await fetch(`/api/file?vault=${encodeURIComponent(currentVault())}&path=${encodeURIComponent(path)}`);
+            const metadata = await metadataRes.json().catch(() => ({}));
+            let diskContent = content;
+            if (metadata.encrypted) {
+                const record = WriterCrypto.recall(path);
+                if (!record) {
+                    alert(`Unlock ${path} before saving it.`);
+                    return;
+                }
+                diskContent = await WriterCrypto.seal(record, content);
+            }
             const res = await fetch('/api/file', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ vault: currentVault(), file_path: path, content }),
+                body: JSON.stringify({
+                    vault: currentVault(),
+                    file_path: path,
+                    content: diskContent,
+                    expected_revision: metadata.revision || null,
+                }),
             });
             if (!res.ok) {
                 alert(`Could not save ${path}`);
@@ -2035,6 +2459,9 @@
             if (currentFilePath === path) {
                 editor.value = content;
                 lastSavedContent = content;
+                const saved = await res.json().catch(() => ({}));
+                currentRevision = saved.revision || currentRevision;
+                if (metadata.encrypted) currentEnvelope = diskContent;
                 setSaveStatus('Saved', 'text-emerald-400');
                 updateEditorStats(true);
             }
@@ -2215,6 +2642,7 @@
             const items = [];
             if (selected.length === 1 && folders.length === 1) {
                 items.push({ label: 'New file', run: () => createNewFile(folders[0].path) });
+                items.push({ label: 'New encrypted file', run: () => createEncryptedFile(folders[0].path) });
                 items.push({ label: 'New folder', run: () => createNewFolder(folders[0].path) });
             }
             if (selected.length === 1 && files.length === 1) items.push(saveItem);
@@ -2263,6 +2691,7 @@
             const items = type === 'tree'
                 ? [
                     { label: 'New file', run: () => createNewFile('') },
+                    { label: 'New encrypted file', run: () => createEncryptedFile('') },
                     { label: 'New folder', run: () => createNewFolder('') },
                     refreshItem,
                     { separator: true },
@@ -2580,7 +3009,7 @@
         function setChatAwaiting(waiting) {
             if (!chatInput) return;
             chatInput.dataset.awaiting = waiting ? '1' : '';
-            chatInput.placeholder = composerPlaceholder('writing');
+            syncComposerPlaceholders();
         }
 
         const bubbleMeta = new WeakMap();
@@ -2629,8 +3058,14 @@
             if (loadingId) wrap.id = loadingId;
             paintChatBubble(wrap, channel, role, text, { error, clarification, retry });
             log.appendChild(wrap);
-            log.scrollTop = log.scrollHeight;
+            scrollChatLog(log);
             return wrap;
+        }
+
+        function scrollChatLog(log) {
+            if (!log) return;
+            log.scrollTop = log.scrollHeight;
+            requestAnimationFrame(() => { log.scrollTop = log.scrollHeight; });
         }
 
         async function copyBubbleText(text) {
@@ -2731,12 +3166,35 @@
             if (channel === 'writing') {
                 setChatAwaiting((history || []).some(msg => msg.clarification));
             }
+            reattachInflight(channel, history);
+            scrollChatLog(log);
         }
 
         const chatHistoryGeneration = { writing: 0, todos: 0 };
+        const chatInflight = { writing: null, todos: null };
+
+        function reattachInflight(channel, history) {
+            const pending = chatInflight[channel];
+            const log = chatLogEl(channel);
+            if (!pending || pending.painted || !pending.el || !log) return;
+            if (!WriterChat.bubbleSurvivesHistory(pending.id, pending.el.id)) return;
+            const echoed = (history || []).some(msg => msg.role === 'user' && (msg.text || '') === pending.prompt);
+            if (pending.userEl && !echoed && !log.contains(pending.userEl)) log.appendChild(pending.userEl);
+            if (!log.contains(pending.el)) log.appendChild(pending.el);
+            log.scrollTop = log.scrollHeight;
+        }
+
+        function setSendEnabled(sendBtn, phase) {
+            if (!sendBtn) return;
+            sendBtn.disabled = !WriterChat.buttonEnabledAfter(phase);
+        }
 
         async function loadChatHistory(channel) {
             const key = channel === 'todos' ? 'todos' : 'writing';
+            if (privateChatMode) {
+                renderChatHistory(key, ephemeralChats[key]);
+                return;
+            }
             const generation = ++chatHistoryGeneration[key];
             const vault = currentVault();
             try {
@@ -2751,6 +3209,234 @@
             }
         }
 
+        function formatPromptTokens(tokens) {
+            if (tokens >= 10000) return `~${Math.round(tokens / 1000)}k`;
+            if (tokens >= 1000) return `~${Math.round(tokens / 100) / 10}k`;
+            return `~${tokens}`;
+        }
+
+        function promptTokenCount() {
+            const selected = (promptFileCatalog && promptFileCatalog.selected) || [];
+            let chars = editor && editor.value ? editor.value.length : 0;
+            selected.forEach(entry => {
+                if (entry.path === currentFilePath) return;
+                chars += entry.bytes || 0;
+            });
+            return Math.round(chars / 4);
+        }
+
+        function updateContextButton() {
+            const btn = document.getElementById('context-open-btn');
+            const summary = document.getElementById('prompt-files-summary');
+            const estimate = formatPromptTokens(promptTokenCount());
+            if (btn) btn.textContent = promptFileCatalog ? `Context · ${estimate}` : 'Context';
+            if (summary) {
+                const openName = currentFilePath ? ` (${currentFilePath})` : '';
+                summary.textContent = `Open file is always included${openName}. About ${estimate} tokens on each message.`;
+            }
+        }
+
+        function selectedPromptPaths() {
+            return ((promptFileCatalog && promptFileCatalog.selected) || []).map(entry => entry.path);
+        }
+
+        function renderPromptFileList(list, entries, highlightPath, side) {
+            if (!list) return;
+            list.innerHTML = '';
+            if (!entries.length) {
+                const empty = document.createElement('li');
+                empty.className = 'prompt-file-empty';
+                empty.textContent = 'None';
+                list.appendChild(empty);
+                return;
+            }
+            entries.forEach(entry => {
+                const item = document.createElement('li');
+                const row = document.createElement('button');
+                row.type = 'button';
+                row.className = 'prompt-file-row';
+                row.textContent = entry.label || entry.path;
+                row.setAttribute('role', 'option');
+                row.setAttribute('aria-selected', entry.path === highlightPath ? 'true' : 'false');
+                row.addEventListener('click', () => {
+                    if (side === 'available') {
+                        promptHighlight.available = entry.path;
+                        promptHighlight.selected = '';
+                    } else {
+                        promptHighlight.selected = entry.path;
+                        promptHighlight.available = '';
+                    }
+                    renderPromptFileLists();
+                });
+                item.appendChild(row);
+                list.appendChild(item);
+            });
+        }
+
+        function renderPromptFileLists() {
+            const catalog = promptFileCatalog || { available: [], selected: [] };
+            renderPromptFileList(
+                document.getElementById('prompt-available'),
+                catalog.available || [],
+                promptHighlight.available,
+                'available'
+            );
+            renderPromptFileList(
+                document.getElementById('prompt-selected'),
+                catalog.selected || [],
+                promptHighlight.selected,
+                'selected'
+            );
+            const paths = selectedPromptPaths();
+            const selectedIndex = paths.indexOf(promptHighlight.selected);
+            const addBtn = document.getElementById('prompt-add');
+            const removeBtn = document.getElementById('prompt-remove');
+            const upBtn = document.getElementById('prompt-up');
+            const downBtn = document.getElementById('prompt-down');
+            if (addBtn) addBtn.disabled = promptFilesSaving || !promptHighlight.available;
+            if (removeBtn) removeBtn.disabled = promptFilesSaving || !promptHighlight.selected;
+            if (upBtn) upBtn.disabled = promptFilesSaving || selectedIndex <= 0;
+            if (downBtn) downBtn.disabled = promptFilesSaving || selectedIndex < 0 || selectedIndex >= paths.length - 1;
+            updateContextButton();
+        }
+
+        async function loadPromptFiles() {
+            const vault = currentVault();
+            try {
+                const res = await fetch(`/api/prompt-files?vault=${encodeURIComponent(vault)}`);
+                if (!res.ok) return;
+                const data = await res.json();
+                if (vault !== currentVault()) return;
+                promptFileCatalog = data;
+                updateContextButton();
+                const modal = document.getElementById('prompt-files-modal');
+                if (modal && !modal.classList.contains('hidden')) renderPromptFileLists();
+            } catch (e) {
+                console.error('Failed to load prompt files', e);
+            }
+        }
+
+        async function openPromptFiles() {
+            const modal = document.getElementById('prompt-files-modal');
+            if (!modal) return;
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+            await loadPromptFiles();
+            renderPromptFileLists();
+        }
+
+        function closePromptFiles() {
+            const modal = document.getElementById('prompt-files-modal');
+            if (!modal) return;
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+        }
+
+        function applyLocalSelection(paths) {
+            const previous = promptFileCatalog || { available: [], selected: [] };
+            const known = new Map();
+            [...(previous.available || []), ...(previous.selected || [])].forEach(entry => {
+                known.set(entry.path, entry);
+            });
+            const selectedSet = new Set(paths);
+            promptFileCatalog = {
+                vault: previous.vault,
+                selected: paths.map(path => known.get(path) || { path, bytes: 0, label: path }),
+                available: [...known.values()]
+                    .filter(entry => !selectedSet.has(entry.path))
+                    .sort((a, b) => a.path.localeCompare(b.path)),
+            };
+        }
+
+        async function savePromptSelection(paths) {
+            if (promptFilesSaving) return;
+            const vault = currentVault();
+            applyLocalSelection(paths);
+            promptFilesSaving = true;
+            renderPromptFileLists();
+            try {
+                const res = await fetch('/api/prompt-files', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ vault, selected: paths }),
+                });
+                if (!res.ok) throw new Error('Could not save prompt files');
+                const data = await res.json();
+                if (vault !== currentVault()) return;
+                promptFileCatalog = data;
+            } catch (e) {
+                console.error(e);
+                await loadPromptFiles();
+            } finally {
+                promptFilesSaving = false;
+                renderPromptFileLists();
+            }
+        }
+
+        function addPromptFile() {
+            const path = promptHighlight.available;
+            if (!path || promptFilesSaving) return;
+            const paths = selectedPromptPaths();
+            if (!paths.includes(path)) paths.push(path);
+            promptHighlight.selected = path;
+            promptHighlight.available = '';
+            savePromptSelection(paths);
+        }
+
+        function removePromptFile() {
+            const path = promptHighlight.selected;
+            if (!path || promptFilesSaving) return;
+            promptHighlight.available = path;
+            promptHighlight.selected = '';
+            savePromptSelection(selectedPromptPaths().filter(item => item !== path));
+        }
+
+        function movePromptFile(delta) {
+            const path = promptHighlight.selected;
+            if (!path || promptFilesSaving) return;
+            const paths = selectedPromptPaths();
+            const index = paths.indexOf(path);
+            const next = index + delta;
+            if (index < 0 || next < 0 || next >= paths.length) return;
+            paths.splice(index, 1);
+            paths.splice(next, 0, path);
+            savePromptSelection(paths);
+        }
+
+        function syncFileLockSwitch() {
+            const btn = document.getElementById('file-lock-toggle');
+            if (!btn) return;
+            btn.classList.toggle('is-on', fileLocked);
+            btn.setAttribute('aria-checked', fileLocked ? 'true' : 'false');
+            btn.title = fileLocked
+                ? 'The open file will not be changed'
+                : 'Replies can change the open file';
+        }
+
+        function toggleFileLock() {
+            fileLocked = !fileLocked;
+            localStorage.setItem('writer-file-lock', String(fileLocked));
+            syncFileLockSwitch();
+        }
+
+        function chatRequestBody(prompt, vault, channel) {
+            const body = {
+                prompt,
+                vault,
+                tab: channel === 'todos' ? 'todos' : 'conversation',
+                channel,
+                file_path: currentFilePath,
+                file_content: currentEncrypted && channel === 'todos' ? null : editor.value,
+                allow_file_write: !fileLocked,
+                ephemeral: privateChatMode,
+                ephemeral_history: privateChatMode ? ephemeralChats[channel] : null,
+            };
+            if (promptFileCatalog) {
+                body.context_files = selectedPromptPaths();
+            }
+            return body;
+        }
+
         async function submitChat(forcedChannel, promptOverride) {
             const requested = forcedChannel === 'todos' ? 'todos' : 'writing';
             const composer = inputForChannel(requested);
@@ -2758,8 +3444,10 @@
             const prompt = (explicit ? String(promptOverride) : ((composer && composer.value) || '')).trim();
             if (!prompt) return;
             const vault = currentVault();
+            const allowFileWrite = !fileLocked;
             const todoIntent = !explicit && (requested === 'todos' || looksLikeTodoChat(prompt));
             const channel = explicit ? requested : (todoIntent ? 'todos' : 'writing');
+            if (chatInflight[channel]) return;
             const sendBtn = sendButtonForChannel(channel);
             const wasAwaiting = channel === 'writing' && !!(chatInput && chatInput.dataset.awaiting === '1');
 
@@ -2776,30 +3464,30 @@
                 switchTab('conversation', { skipHistory: true });
             }
 
-            appendChatBubble(channel, 'user', prompt);
+            const userEl = appendChatBubble(channel, 'user', prompt);
+            if (privateChatMode) ephemeralChats[channel].push({ role: 'user', text: prompt });
             const loadingId = 'loading-' + Date.now();
-            appendChatBubble(channel, 'model', 'Thinking...', { loadingId });
-            const loadingEl = document.getElementById(loadingId);
+            const loadingEl = appendChatBubble(channel, 'model', 'Thinking...', { loadingId });
             if (loadingEl) loadingEl.classList.add('animate-pulse');
-            if (sendBtn) sendBtn.disabled = true;
+            chatInflight[channel] = { id: loadingId, el: loadingEl, userEl, prompt, painted: false };
+            chatHistoryGeneration[channel] += 1;
+            setSendEnabled(sendBtn, 'inflight');
+            let phase = 'inflight';
 
             try {
                 const res = await fetch('/api/chat', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        prompt,
-                        vault,
-                        tab: channel === 'todos' ? 'todos' : 'conversation',
-                        channel,
-                        file_path: currentFilePath,
-                        file_content: editor.value
-                    })
+                    signal: AbortSignal.timeout(WriterChat.chatTimeoutMs()),
+                    body: JSON.stringify(chatRequestBody(prompt, vault, channel))
                 });
                 if (!res.ok) throw new Error(`Server returned ${res.status}`);
                 const data = await res.json();
                 const reply = data.response || data.message || JSON.stringify(data);
                 const replyFailed = isChatErrorText(reply);
+                if (privateChatMode) ephemeralChats[channel].push({ role: 'model', text: reply });
+                phase = 'success';
+                reattachInflight(channel, []);
                 if (loadingEl) {
                     paintChatBubble(loadingEl, channel, 'model', reply, {
                         error: replyFailed,
@@ -2807,6 +3495,8 @@
                         retry: replyFailed ? prompt : '',
                     });
                 }
+                if (chatInflight[channel]) chatInflight[channel].painted = true;
+                chatHistoryGeneration[channel] += 1;
                 if (data.channel === 'todos' && Array.isArray(data.items)) {
                     todoItems = data.items.map(normalizeTodoItem);
                     todoVault = vault;
@@ -2821,25 +3511,35 @@
                         openExtractModal(data.new_file);
                     }
                 }
-                if (data.updated_content && !(channel === 'writing' && data.clarification && !replyFailed)) {
+                if (allowFileWrite && data.updated_content && !(channel === 'writing' && data.clarification && !replyFailed)) {
                     editor.value = data.updated_content;
-                    lastSavedContent = currentFilePath ? data.updated_content : null;
+                    if (!currentEncrypted) lastSavedContent = currentFilePath ? data.updated_content : null;
                     setSaveStatus('Unsaved', 'text-amber-400');
                     updateEditorStats(true);
                     await autosaveNow();
                 }
             } catch (e) {
-                if (channel === 'writing' && wasAwaiting) setChatAwaiting(true);
-                if (loadingEl) {
-                    paintChatBubble(loadingEl, channel, 'model', `Failed to send message: ${e.message}`, {
-                        error: true,
-                        retry: prompt,
-                    });
+                if (phase !== 'success') {
+                    if (channel === 'writing' && wasAwaiting) setChatAwaiting(true);
+                    phase = (e && (e.name === 'TimeoutError' || e.name === 'AbortError')) ? 'timeout' : 'error';
+                    const text = phase === 'timeout'
+                        ? 'The reply took too long. Try again.'
+                        : `Failed to send message: ${e.message}`;
+                    reattachInflight(channel, []);
+                    if (loadingEl) {
+                        paintChatBubble(loadingEl, channel, 'model', text, {
+                            error: true,
+                            retry: prompt,
+                        });
+                    }
+                    if (chatInflight[channel]) chatInflight[channel].painted = true;
+                    chatHistoryGeneration[channel] += 1;
                 }
             } finally {
-                if (sendBtn) sendBtn.disabled = false;
+                chatInflight[channel] = null;
+                setSendEnabled(sendBtn, phase === 'inflight' ? 'error' : phase);
                 const log = chatLogEl(channel);
-                log.scrollTop = log.scrollHeight;
+                if (log) log.scrollTop = log.scrollHeight;
             }
         }
 
@@ -2905,6 +3605,7 @@
         function updateEditorStats(includeReading) {
             updateWordCount();
             if (includeReading) updateReadingTime();
+            updateContextButton();
         }
 
         function scheduleWordCount() {
@@ -2912,6 +3613,7 @@
             wordCountRaf = requestAnimationFrame(() => {
                 wordCountRaf = null;
                 updateWordCount();
+                updateContextButton();
             });
         }
 
@@ -2953,8 +3655,11 @@
         function selectFindMatch() {
             if (!findSpansCache.length) return;
             const span = findSpansCache[findIndex];
+            const active = document.activeElement;
+            const returnFocus = active && FIND_FIELD_SET.has(active.id) ? active : null;
             editor.focus();
             editor.setSelectionRange(span[0], span[1]);
+            if (returnFocus) returnFocus.focus();
         }
 
         function findStep(delta) {
@@ -2994,14 +3699,92 @@
             setFindStatus(`Replaced ${result.count}`);
         }
 
+        const FIND_FIELD_IDS = ['find-query', 'find-replace', 'find-regex', 'find-word', 'find-case'];
+        const FIND_FIELD_SET = new Set(FIND_FIELD_IDS);
+        let isolatedFields = null;
+
+        function findBarClosed() {
+            const bar = document.getElementById('find-bar');
+            return !bar || bar.classList.contains('hidden');
+        }
+
+        function syncFindFields() {
+            const closed = findBarClosed();
+            FIND_FIELD_IDS.forEach((id) => {
+                const el = document.getElementById(id);
+                if (!el) return;
+                if (isolatedFields && document.activeElement === el) return;
+                if (isolatedFields && !closed) return;
+                el.disabled = closed;
+            });
+        }
+
+        function isiOSFieldBar() {
+            const ua = navigator.userAgent || '';
+            const touch = navigator.maxTouchPoints > 1;
+            if (/iPhone|iPad|iPod/.test(ua)) return true;
+            return touch && /Macintosh/.test(ua);
+        }
+
+        function rememberIsolatedFields() {
+            const live = document.querySelectorAll('input, textarea, select');
+            if (!isolatedFields) {
+                isolatedFields = Array.from(live).map((field) => ({
+                    field,
+                    wasDisabled: field.disabled,
+                }));
+                return;
+            }
+            const known = new Set(isolatedFields.map((entry) => entry.field));
+            live.forEach((field) => {
+                if (known.has(field)) return;
+                isolatedFields.push({ field, wasDisabled: field.disabled });
+            });
+        }
+
+        function isolateField(active) {
+            if (!isiOSFieldBar() || !active || !window.WriterFields) return;
+            rememberIsolatedFields();
+            isolatedFields.forEach(({ field }) => {
+                field.disabled = WriterFields.disabledDuringFocus(field === active);
+            });
+        }
+
+        function restoreIsolatedFields() {
+            if (!isolatedFields || !window.WriterFields) return;
+            const saved = isolatedFields;
+            isolatedFields = null;
+            const closed = findBarClosed();
+            saved.forEach(({ field, wasDisabled }) => {
+                const keep = WriterFields.shouldKeepDisabled
+                    ? WriterFields.shouldKeepDisabled(wasDisabled, closed, FIND_FIELD_SET.has(field.id))
+                    : WriterFields.disabledAfterBlur(wasDisabled);
+                field.disabled = keep;
+            });
+            syncFindFields();
+        }
+
+        function bindFieldIsolation(el) {
+            if (!el) return;
+            el.addEventListener('focus', () => isolateField(el));
+            el.addEventListener('blur', () => {
+                // Re-enabling every field on blur is what brings Safari's arrows
+                // and Find strip back. Keep isolation until another field is focused.
+                if (!isiOSFieldBar()) restoreIsolatedFields();
+            });
+        }
+
         function toggleFindBar(force) {
             if (previewOn) toggleMarkdownPreview(false);
             const bar = document.getElementById('find-bar');
             const open = force === undefined ? bar.classList.contains('hidden') : !!force;
             bar.classList.toggle('hidden', !open);
+            if (open) restoreIsolatedFields();
+            syncFindFields();
             if (open) {
-                document.getElementById('find-query').focus();
-                document.getElementById('find-query').select();
+                const query = document.getElementById('find-query');
+                query.focus();
+                query.select();
                 refreshFindMatches();
             }
         }
@@ -3076,7 +3859,10 @@
 
         let historyPath = '';
         let historyRev = '';
+        let historyOther = '';
         let historyRows = [];
+        let historyCache = new Map();
+        let historyRender = 0;
 
         function formatHistoryWhen(iso) {
             const date = new Date(iso);
@@ -3084,7 +3870,53 @@
             return date.toLocaleString();
         }
 
+        function historyTitle(row) {
+            const name = (row && row.label) || 'Snapshot';
+            const when = row ? formatHistoryWhen(row.committed_at) : '';
+            return when ? `${name} · ${when}` : name;
+        }
+
+        function orderedHistoryPair() {
+            if (!historyRev || !historyOther) return null;
+            const focusIdx = historyRows.findIndex((row) => row.rev === historyRev);
+            const otherIdx = historyRows.findIndex((row) => row.rev === historyOther);
+            if (focusIdx < 0 || otherIdx < 0) return null;
+            const focus = historyRows[focusIdx];
+            const other = historyRows[otherIdx];
+            return focusIdx > otherIdx
+                ? { older: focus, newer: other }
+                : { older: other, newer: focus };
+        }
+
+        function historyHost() {
+            return document.getElementById('history-host');
+        }
+
+        function historyStatusText() {
+            const pair = orderedHistoryPair();
+            if (!pair) return 'Nothing else to compare yet.';
+            const compare = window.WriterCompare;
+            const count = compare ? compare.chunkCount(historyHost()) : 0;
+            const diff = count
+                ? `${count} difference${count === 1 ? '' : 's'} found.`
+                : 'These versions match.';
+            return `Comparing ${historyTitle(pair.older)} with ${historyTitle(pair.newer)}. ${diff}`;
+        }
+
+        function markHistorySelection() {
+            document.querySelectorAll('.history-version').forEach((btn) => {
+                btn.classList.toggle('selected', btn.dataset.rev === historyRev);
+                btn.classList.toggle('compared', btn.dataset.rev === historyOther);
+            });
+            const row = historyRows.find((item) => item.rev === historyRev);
+            const label = document.getElementById('history-label');
+            if (label) label.value = row && row.label ? row.label : '';
+        }
+
         function closeHistory() {
+            historyRender += 1;
+            if (window.WriterCompare) window.WriterCompare.destroy(historyHost());
+            historyCache = new Map();
             const modal = document.getElementById('history-modal');
             modal.classList.add('hidden');
             modal.classList.remove('flex');
@@ -3095,10 +3927,13 @@
                 setSaveStatus('Open a file first', 'text-amber-400');
                 return;
             }
+            historyRender += 1;
             historyPath = path;
             historyRev = '';
+            historyOther = '';
+            historyCache = new Map();
+            if (window.WriterCompare) window.WriterCompare.destroy(historyHost());
             document.getElementById('history-path').textContent = path;
-            document.getElementById('history-text').textContent = '';
             document.getElementById('history-label').value = '';
             document.getElementById('history-status').textContent = '';
             document.getElementById('history-list').innerHTML = '';
@@ -3106,6 +3941,79 @@
             modal.classList.remove('hidden');
             modal.classList.add('flex');
             await loadHistoryList();
+        }
+
+        async function fetchHistoryText(rev) {
+            if (historyCache.has(rev)) return historyCache.get(rev);
+            const res = await fetch(`/api/history/content?vault=${encodeURIComponent(currentVault())}&path=${encodeURIComponent(historyPath)}&rev=${encodeURIComponent(rev)}`);
+            if (res.status === 401) {
+                window.location.href = '/login';
+                throw new Error('Sign in required');
+            }
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(typeof data.detail === 'string' ? data.detail : 'Could not read this version');
+            const content = data.content || '';
+            historyCache.set(rev, content);
+            return content;
+        }
+
+        async function showHistoryDiff() {
+            const render = ++historyRender;
+            const status = document.getElementById('history-status');
+            const host = historyHost();
+            if (!window.WriterCompare) {
+                status.textContent = 'Compare view failed to load.';
+                return;
+            }
+            try {
+                const ignoreCase = document.getElementById('history-ignore-case').checked;
+                const ignoreSpace = document.getElementById('history-ignore-space').checked;
+                if (!historyOther) {
+                    const text = await fetchHistoryText(historyRev);
+                    if (render !== historyRender) return;
+                    const row = historyRows.find((item) => item.rev === historyRev);
+                    window.WriterCompare.mountSingle(host, { text, label: historyTitle(row), readOnly: true });
+                    status.textContent = 'Nothing else to compare yet.';
+                    return;
+                }
+                const pair = orderedHistoryPair();
+                const [olderText, newerText] = await Promise.all([
+                    fetchHistoryText(pair.older.rev),
+                    fetchHistoryText(pair.newer.rev),
+                ]);
+                if (render !== historyRender) return;
+                window.WriterCompare.mountPair(host, {
+                    a: olderText,
+                    b: newerText,
+                    aLabel: historyTitle(pair.older),
+                    bLabel: historyTitle(pair.newer),
+                    readOnly: true,
+                    revert: false,
+                    ignoreCase,
+                    ignoreSpace,
+                });
+                status.textContent = historyStatusText();
+            } catch (err) {
+                if (render !== historyRender) return;
+                status.textContent = err.message || 'Could not read this version';
+            }
+        }
+
+        function refreshHistoryDiff() {
+            const compare = window.WriterCompare;
+            if (!compare || !historyOther) return;
+            const ignoreCase = document.getElementById('history-ignore-case').checked;
+            const ignoreSpace = document.getElementById('history-ignore-space').checked;
+            try {
+                compare.setIgnore(historyHost(), ignoreCase, ignoreSpace);
+                document.getElementById('history-status').textContent = historyStatusText();
+            } catch (err) {
+                document.getElementById('history-status').textContent = err.message || 'Could not update the compare view';
+            }
+        }
+
+        function historyGo(direction) {
+            if (window.WriterCompare) window.WriterCompare.go(historyHost(), direction);
         }
 
         async function loadHistoryList() {
@@ -3124,11 +4032,25 @@
             historyRows = data.commits || [];
             const rows = historyRows;
             if (!rows.length) {
+                historyRev = '';
+                historyOther = '';
+                if (window.WriterCompare) window.WriterCompare.destroy(historyHost());
                 list.innerHTML = '<p class="px-3 py-3 text-xs text-gray-400">No snapshots yet. A snapshot is taken every 15 minutes after the file changes.</p>';
+                status.textContent = '';
                 return;
             }
+            const revs = new Set(rows.map((row) => row.rev));
+            if (rows.length === 1) {
+                historyRev = rows[0].rev;
+                historyOther = '';
+            } else {
+                if (!historyRev || !revs.has(historyRev)) historyRev = rows[0].rev;
+                if (!historyOther || !revs.has(historyOther) || historyOther === historyRev) {
+                    historyOther = rows.find((row) => row.rev !== historyRev).rev;
+                }
+            }
             list.innerHTML = rows.map((row) => `
-                <button type="button" class="history-version${row.rev === historyRev ? ' selected' : ''}" data-rev="${escapeAttr(row.rev)}" role="option">
+                <button type="button" class="history-version${row.rev === historyRev ? ' selected' : ''}${row.rev === historyOther ? ' compared' : ''}" data-rev="${escapeAttr(row.rev)}" role="option">
                     <span>${escapeHtml(row.label || 'Snapshot')}</span>
                     <span class="history-when">${escapeHtml(formatHistoryWhen(row.committed_at))}</span>
                 </button>
@@ -3136,31 +4058,22 @@
             list.querySelectorAll('.history-version').forEach((btn) => {
                 btn.addEventListener('click', () => selectHistoryVersion(btn.dataset.rev));
             });
-            if (!historyRev || !rows.some((row) => row.rev === historyRev)) {
-                await selectHistoryVersion(rows[0].rev);
-            }
+            markHistorySelection();
+            await showHistoryDiff();
         }
 
         async function selectHistoryVersion(rev) {
+            if (!rev || rev === historyRev) return;
+            if (rev === historyOther) {
+                historyOther = historyRev;
+                historyRev = rev;
+                markHistorySelection();
+                return;
+            }
+            historyOther = historyRev;
             historyRev = rev;
-            document.querySelectorAll('.history-version').forEach((btn) => {
-                btn.classList.toggle('selected', btn.dataset.rev === rev);
-            });
-            const res = await fetch(`/api/history/content?vault=${encodeURIComponent(currentVault())}&path=${encodeURIComponent(historyPath)}&rev=${encodeURIComponent(rev)}`);
-            if (res.status === 401) {
-                window.location.href = '/login';
-                return;
-            }
-            const data = await res.json().catch(() => ({}));
-            const status = document.getElementById('history-status');
-            if (!res.ok) {
-                status.textContent = typeof data.detail === 'string' ? data.detail : 'Could not read this version';
-                return;
-            }
-            document.getElementById('history-text').textContent = data.content || '';
-            const row = historyRows.find((item) => item.rev === rev);
-            document.getElementById('history-label').value = row && row.label ? row.label : '';
-            status.textContent = '';
+            markHistorySelection();
+            await showHistoryDiff();
         }
 
         async function renameHistoryLabel() {
@@ -3186,12 +4099,11 @@
                 status.textContent = typeof data.detail === 'string' ? data.detail : 'Could not rename this version';
                 return;
             }
-            status.textContent = data.label ? 'Label saved.' : 'Label cleared.';
             document.getElementById('history-label').value = data.label || '';
-            const keep = historyRev;
+            historyCache = new Map();
             await loadHistoryList();
-            historyRev = keep;
-            document.getElementById('history-status').textContent = data.label ? 'Label saved.' : 'Label cleared.';
+            const note = data.label ? 'Label saved.' : 'Label cleared.';
+            status.textContent = `${note} ${status.textContent}`.trim();
         }
 
         async function restoreHistoryVersion() {
@@ -3258,6 +4170,25 @@
         }
 
         document.addEventListener('DOMContentLoaded', () => {
+            if (WriterCrypto.keyCount() === 0) editor.value = '';
+            ['keydown', 'pointerdown', 'touchstart'].forEach(name => {
+                document.addEventListener(name, noteSecureActivity, { passive: true });
+            });
+            window.addEventListener('offline', () => lockEncryptedSession('offline'));
+            window.addEventListener('pagehide', () => lockEncryptedSession('page hidden'));
+            window.addEventListener('pageshow', (event) => {
+                if (event.persisted && WriterCrypto.keyCount() === 0) blankSensitiveUi();
+                enforceSecureTimeout();
+            });
+            document.addEventListener('visibilitychange', () => {
+                if (document.visibilityState === 'hidden') hiddenSince = Date.now();
+                else {
+                    enforceSecureTimeout();
+                    hiddenSince = 0;
+                    noteSecureActivity();
+                }
+            });
+            secureIdleTimer = setInterval(enforceSecureTimeout, 10000);
             const header = document.getElementById('app-header');
             const syncHeaderHeight = () => {
                 if (!header) return;
@@ -3268,7 +4199,37 @@
             window.addEventListener('orientationchange', () => setTimeout(syncHeaderHeight, 200));
             bindBubbleMenu(document.getElementById('chat-messages'));
             bindBubbleMenu(document.getElementById('guppy-messages'));
+            bindFieldIsolation(editor);
+            bindFieldIsolation(chatInput);
+            bindFieldIsolation(guppyInput);
+            bindFieldIsolation(document.getElementById('todo-new-input'));
+            bindFieldIsolation(document.getElementById('find-query'));
+            bindFieldIsolation(document.getElementById('find-replace'));
+            document.addEventListener('focusin', (e) => {
+                if (!isiOSFieldBar()) return;
+                const field = e.target;
+                if (!field || !field.matches || !field.matches('input, textarea, select')) return;
+                if (field.type === 'checkbox' || field.type === 'radio') return;
+                isolateField(field);
+            });
+            document.addEventListener('pointerdown', (e) => {
+                if (!isiOSFieldBar()) return;
+                const fields = document.querySelectorAll('textarea, input, select');
+                for (const field of fields) {
+                    if (field.type === 'checkbox' || field.type === 'radio') continue;
+                    const rect = field.getBoundingClientRect();
+                    const hit = e.clientX >= rect.left && e.clientX <= rect.right && e.clientY >= rect.top && e.clientY <= rect.bottom;
+                    if (!hit || rect.width === 0 || rect.height === 0) continue;
+                    if (field.disabled) field.disabled = false;
+                    if (document.activeElement !== field) field.focus();
+                    isolateField(field);
+                    break;
+                }
+            }, true);
+            syncFindFields();
+            if (isiOSFieldBar()) document.documentElement.classList.add('ios-field-bar');
             syncComposerPlaceholders();
+            syncFileLockSwitch();
             loadVaults();
             updateFilenameLabel();
             applyGuppyPane();
@@ -3277,32 +4238,6 @@
             landscapeChatQuery.addEventListener('change', placeConversationPane);
             syncTodoFilterButtons();
             updateEditorStats(true);
-            ['diff-left-edit', 'diff-right-edit'].forEach((id) => {
-                const ta = document.getElementById(id);
-                const hl = document.getElementById(id.replace('-edit', '-hl'));
-                ta.addEventListener('scroll', () => {
-                    if (diffScrollLock) return;
-                    diffScrollLock = true;
-                    const left = document.getElementById('diff-left-edit');
-                    const right = document.getElementById('diff-right-edit');
-                    const other = ta === left ? right : left;
-                    const otherHl = document.getElementById(other.id.replace('-edit', '-hl'));
-                    other.scrollTop = ta.scrollTop;
-                    other.scrollLeft = ta.scrollLeft;
-                    hl.scrollTop = ta.scrollTop;
-                    hl.scrollLeft = ta.scrollLeft;
-                    if (otherHl) {
-                        otherHl.scrollTop = ta.scrollTop;
-                        otherHl.scrollLeft = ta.scrollLeft;
-                    }
-                    const gutter = document.getElementById('diff-gutter');
-                    if (gutter) gutter.scrollTop = ta.scrollTop;
-                    requestAnimationFrame(() => { diffScrollLock = false; });
-                });
-                ta.addEventListener('input', scheduleDiffRefresh);
-                ta.addEventListener('keyup', updateLineCompare);
-                ta.addEventListener('click', updateLineCompare);
-            });
             document.addEventListener('keydown', (e) => {
                 if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
                     e.preventDefault();

@@ -5,6 +5,9 @@ import time
 import logging
 import asyncio
 import shutil
+import hashlib
+import secrets
+import threading
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import Optional, List, Dict, Any, Literal
@@ -37,6 +40,25 @@ from app.history import (
     snapshot_all,
     snapshot_interval_seconds,
     vault_lock,
+    purge_vault_history,
+)
+from app.encryption import (
+    PREFIX as ENCRYPTED_PREFIX,
+    atomic_write_text,
+    clear_conversion_pending,
+    envelope_file_id,
+    file_revision,
+    is_encrypted_path,
+    is_encrypted_text,
+    mark_conversion_pending,
+    parse_envelope,
+    pending_conversions,
+    register_verifier,
+    remove_identity_if_unused,
+    report_unlock_failure,
+    report_unlock_success,
+    throttle_status,
+    verify_deletion,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -94,9 +116,47 @@ def save_chat_histories() -> None:
         pass
 
 
+def prompt_files_store_path() -> Path:
+    from app import auth as auth_mod
+
+    return Path(auth_mod.AUTH_DIR) / "prompt_files.json"
+
+
+def load_prompt_files() -> None:
+    PROMPT_FILE_SELECTIONS.clear()
+    path = prompt_files_store_path()
+    if not path.is_file():
+        return
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        logger.exception("Could not read prompt files")
+        return
+    if not isinstance(data, dict):
+        return
+    for key, value in data.items():
+        if isinstance(value, list) and all(isinstance(item, str) for item in value):
+            PROMPT_FILE_SELECTIONS[str(key)] = list(value)
+
+
+def save_prompt_files() -> None:
+    path = prompt_files_store_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = json.dumps(PROMPT_FILE_SELECTIONS)
+    temporary = path.with_suffix(".json.tmp")
+    temporary.write_text(payload, encoding="utf-8")
+    temporary.replace(path)
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        pass
+
+
 @asynccontextmanager
 async def _lifespan(_app: FastAPI):
     load_chat_histories()
+    load_prompt_files()
+    recover_pending_conversions()
     task = asyncio.create_task(_snapshot_loop())
     try:
         yield
@@ -139,11 +199,26 @@ GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
 
 client = genai.Client()
 
+
+def gemini_json_config():
+    """JSON answers only. Automatic function calling is not used and must stay off."""
+    return types.GenerateContentConfig(
+        response_mime_type="application/json",
+        automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
+        # `store` is already supported by the REST API but is not yet a typed
+        # field in every google-genai 2.x model. Keep the opt-out explicit.
+        http_options=types.HttpOptions(extra_body={"store": False}),
+    )
+
 # In-memory session store (Persisted per vault in memory / JSON)
 # Structure: { vault_name: [ { "id": str, "role": "user"|"model", "text": str, "status": "pending"|"processing"|"completed"|"failed", "timestamp": str } ] }
 CHAT_HISTORIES: Dict[str, List[Dict[str, Any]]] = {}
 TODO_CHAT_HISTORIES: Dict[str, List[Dict[str, Any]]] = {}
+# Vaults absent from this map still use SKILL.md. An empty list is an explicit clear.
+PROMPT_FILE_SELECTIONS: Dict[str, List[str]] = {}
 QUEUE_LOCKS: Dict[str, asyncio.Lock] = {}
+DELETE_MANIFESTS: Dict[str, Dict[str, Any]] = {}
+DELETE_MANIFESTS_LOCK = threading.Lock()
 
 def get_vault_lock(vault: str) -> asyncio.Lock:
     if vault not in QUEUE_LOCKS:
@@ -326,8 +401,7 @@ def clean_json_response(raw_text: str | None) -> dict:
         data = _raw_json_object(repaired) if repaired is not None else None
         if data is None:
             if isinstance(err, json.JSONDecodeError):
-                window = payload[max(0, err.pos - 60):err.pos + 60]
-                logger.error("Unparseable model JSON (%s) near %r", err, window)
+                logger.error("Unparseable model JSON (%s)", err)
                 raise err
             raise json.JSONDecodeError("Could not parse model JSON", payload, 0)
         logger.warning("Repaired malformed model JSON (%s)", err)
@@ -348,6 +422,15 @@ class ChatEnqueueRequest(BaseModel):
     file_content: Optional[str] = None
     channel: Optional[str] = None
     tab: Optional[str] = None
+    context_files: Optional[List[str]] = None
+    allow_file_write: bool = True
+    ephemeral: bool = False
+    ephemeral_history: Optional[List[Dict[str, str]]] = None
+
+
+class PromptFilesUpdateRequest(BaseModel):
+    vault: str = "default"
+    selected: List[str] = []
 
 class ClearHistoryRequest(BaseModel):
     vault: str = "default"
@@ -357,6 +440,7 @@ class FileSaveRequest(BaseModel):
     vault: str = "default"
     file_path: str
     content: str = ""
+    expected_revision: Optional[str] = None
 
 class FileCreateRequest(BaseModel):
     vault: str = "default"
@@ -364,6 +448,42 @@ class FileCreateRequest(BaseModel):
     name: Optional[str] = None
     content: str = ""
     conflict: Optional[Literal["replace", "keep"]] = None
+    verifier: Optional[str] = None
+
+
+class FileConvertRequest(BaseModel):
+    vault: str = "default"
+    file_path: str
+    content: str
+    verifier: str
+    confirmed: bool = False
+
+
+class FileDecryptRequest(BaseModel):
+    vault: str = "default"
+    file_path: str
+    content: str
+    expected_revision: Optional[str] = None
+    confirmed: bool = False
+
+
+class UnlockReportRequest(BaseModel):
+    vault: str = "default"
+    file_id: str
+    proof: Optional[str] = None
+
+
+class DeleteManifestRequest(BaseModel):
+    vault: str = "default"
+    path: str
+
+
+class ConfirmDeleteRequest(BaseModel):
+    vault: str = "default"
+    path: str
+    login_password: str
+    manifest: str
+    proofs: Dict[str, str] = {}
 
 class FolderCreateRequest(BaseModel):
     vault: str = "default"
@@ -532,6 +652,86 @@ def folder_path(vault: str, folder: str) -> Path:
     return path
 
 
+def _delete_syncthing_versions(vault: str, rel_path: str) -> None:
+    root = vault_root(vault)
+    versions = root / ".stversions"
+    if not versions.is_dir():
+        return
+    relative = Path(rel_path)
+    parent = versions.joinpath(*relative.parts[:-1])
+    if not parent.is_dir():
+        return
+    stem = relative.stem
+    suffix = relative.suffix
+    for candidate in parent.iterdir():
+        if not candidate.is_file() or candidate.is_symlink():
+            continue
+        if candidate.name == relative.name or (
+            candidate.name.startswith(f"{stem}~") and candidate.name.endswith(suffix)
+        ):
+            candidate.unlink()
+
+
+def finish_conversion_cleanup(vault: str, rel_path: str) -> None:
+    purge_vault_history(vault)
+    _delete_syncthing_versions(vault, rel_path)
+    clear_conversion_pending(vault)
+
+
+def recover_pending_conversions() -> None:
+    for vault, item in pending_conversions().items():
+        path = item.get("path") if isinstance(item, dict) else None
+        if not path:
+            continue
+        try:
+            with vault_lock(vault):
+                finish_conversion_cleanup(vault, path)
+        except Exception:
+            logger.exception("Could not finish encrypted conversion cleanup for %s", vault)
+
+
+def _path_manifest(vault: str, rel_path: str) -> Dict[str, Any]:
+    root = vault_root(vault)
+    target = resolve_in_vault(vault, rel_path)
+    if target.resolve() == root.resolve() or not target.exists():
+        raise HTTPException(status_code=404, detail="Path not found")
+    paths = [target] if target.is_file() else sorted(path for path in target.rglob("*") if path.is_file())
+    entries = []
+    encrypted_ids = set()
+    for path in paths:
+        relative = path.relative_to(root).as_posix()
+        digest = file_revision(path)
+        file_id = None
+        if is_encrypted_path(path):
+            file_id = envelope_file_id(path.read_text(encoding="utf-8"))
+            encrypted_ids.add(file_id)
+        entries.append({"path": relative, "revision": digest, "file_id": file_id})
+    return {
+        "vault": sanitize_vault_name(vault),
+        "path": target.relative_to(root).as_posix(),
+        "entries": entries,
+        "encrypted_ids": sorted(encrypted_ids),
+    }
+
+
+def _manifest_matches(manifest: Dict[str, Any]) -> bool:
+    current = _path_manifest(str(manifest["vault"]), str(manifest["path"]))
+    return current["entries"] == manifest["entries"]
+
+
+def _vault_has_file_id(vault: str, file_id: str) -> bool:
+    root = vault_root(vault)
+    for path in root.rglob("*"):
+        if not path.is_file() or any(part.startswith(".") for part in path.relative_to(root).parts):
+            continue
+        try:
+            if envelope_file_id(path.read_text(encoding="utf-8")) == file_id:
+                return True
+        except (OSError, UnicodeDecodeError, ValueError):
+            continue
+    return False
+
+
 def list_vault_folders(vault: str) -> List[str]:
     return list_vault_tree(vault)["folders"]
 
@@ -606,11 +806,10 @@ def resolve_conflict_destination(
     if not dest.exists():
         return dest
     if conflict == "replace":
-        if dest.is_file():
-            dest.unlink()
-        else:
-            raise HTTPException(status_code=400, detail="Cannot replace a directory")
-        return dest
+        raise HTTPException(
+            status_code=400,
+            detail="Delete the existing path with password confirmation before replacing it",
+        )
     if conflict == "keep":
         return next_available_path(dest)
     suggested = next_available_path(dest)
@@ -686,7 +885,13 @@ async def read_root(request: Request):
         headers={"Cache-Control": "no-store, max-age=0"},
     )
 
-async def process_chat_queue(vault: str, file_path: Optional[str], file_content: Optional[str]) -> Optional[Dict[str, Any]]:
+async def process_chat_queue(
+    vault: str,
+    file_path: Optional[str],
+    file_content: Optional[str],
+    context_files: Optional[List[str]] = None,
+    allow_file_write: bool = True,
+) -> Optional[Dict[str, Any]]:
     lock = get_vault_lock(vault)
     async with lock:
         history = CHAT_HISTORIES.get(vault, [])
@@ -709,14 +914,17 @@ async def process_chat_queue(vault: str, file_path: Optional[str], file_content:
                 formatted_history.append(f"{msg['role'].upper()}: {msg['text']}")
 
         doc_context = active_document_block(file_path, file_content)
-        skill_context = skill_prompt_block(vault)
+        reference_context = context_prompt_block(vault, context_files, file_path)
 
         history_context = "\n".join(formatted_history[-10:]) # Keep last 10 turns
         
+        lock_note = "" if allow_file_write else "The active document is locked. Leave updated_content null. Do not change that file.\n"
         full_prompt = f"""
         You are an intelligent writing co-pilot.
+        Reference files are read-only. Follow a shortcut in SKILL.md or in any included reference file, and do not change those files.
+        {lock_note}
         {doc_context}
-        {skill_context}
+        {reference_context}
         
         --- RECENT CONVERSATION HISTORY ---
         {history_context}
@@ -728,7 +936,7 @@ async def process_chat_queue(vault: str, file_path: Optional[str], file_content:
         Return a valid JSON object with these fields:
         1. "reply": Your conversational response answering the user's latest instruction(s).
         2. "clarification": One specific question if any part of the instruction is ambiguous, otherwise null. When this is set, put that same question in "reply", and leave "updated_content" and "new_file" null. Do not guess. On the next turn the user's message answers this question; then complete the original request.
-        3. "updated_content": Complete revised text for the active document when the user asked to change that file, or when the SKILL.md shortcut they used says to update it, and no clarification is needed; otherwise null. A shortcut that says not to change the document must leave this null. Extracting into a new file leaves this null unless they also asked to edit the active document.
+        3. "updated_content": Complete revised text for the active document when the user asked to change that file, or when a shortcut in SKILL.md or a reference file says to update it, and no clarification is needed; otherwise null. A shortcut that says not to change the document must leave this null. Extracting into a new file leaves this null unless they also asked to edit the active document.
         4. "new_file": null unless the user asked to extract, split, or save material into another file and no clarification is needed. Then an object {{"name": "scene.md", "content": "the extracted text only"}}.
         """
 
@@ -740,7 +948,7 @@ async def process_chat_queue(vault: str, file_path: Optional[str], file_content:
                 lambda: client.models.generate_content(
                     model=GEMINI_MODEL,
                     contents=full_prompt,
-                    config=types.GenerateContentConfig(response_mime_type="application/json")
+                    config=gemini_json_config(),
                 )
             )
 
@@ -754,6 +962,8 @@ async def process_chat_queue(vault: str, file_path: Optional[str], file_content:
                 updated_content = None
                 new_file = None
             elif not document_update_allowed(combined_prompts):
+                updated_content = None
+            if not allow_file_write:
                 updated_content = None
 
             # Update pending items status to completed
@@ -772,7 +982,7 @@ async def process_chat_queue(vault: str, file_path: Optional[str], file_content:
 
             # Save file updates if requested. A clarification pauses every file change.
             if not clarification:
-                write_updated_document(vault, file_path, updated_content)
+                await asyncio.to_thread(write_updated_document, vault, file_path, updated_content)
 
             save_chat_histories()
             return {
@@ -844,6 +1054,8 @@ async def process_todo_queue(
     vault: str,
     file_path: Optional[str] = None,
     file_content: Optional[str] = None,
+    context_files: Optional[List[str]] = None,
+    allow_file_write: bool = True,
 ) -> Optional[Dict[str, Any]]:
     lock = get_vault_lock(f"{vault}:todos")
     async with lock:
@@ -863,14 +1075,17 @@ async def process_todo_queue(
         items, preamble, trailer = read_todo_state(vault)
         digest = format_todo_digest(items)
         doc_context = active_document_block(file_path, file_content)
-        skill_context = skill_prompt_block(vault)
+        reference_context = context_prompt_block(vault, context_files, file_path)
+        lock_note = "" if allow_file_write else "The active document is locked. Leave updated_content null. Do not change that file.\n"
         full_prompt = f"""
 You are Guppy, a concise to-do list manager for a writer.
-You manage the vault TODO.md list. Edit the active document only when a SKILL.md shortcut says to update it.
+You manage the vault TODO.md list. Edit the active document only when a shortcut in SKILL.md or a reference file says to update it.
+{lock_note}
 Today's date is {date.today().isoformat()}.
 {doc_context}
-{skill_context}
-If the user invokes a SKILL.md shortcut, answer by following that shortcut against the active document and leave "actions" empty unless they also asked to change the to-do list. When that shortcut says to update the document, set "updated_content" to the complete revised text. When it says not to change the document, leave "updated_content" null.
+{reference_context}
+Reference files are read-only. Follow a shortcut in SKILL.md or in any included reference file, and do not change those files.
+If the user invokes a shortcut from SKILL.md or a reference file, answer by following that shortcut against the active document and leave "actions" empty unless they also asked to change the to-do list. When that shortcut says to update the document, set "updated_content" to the complete revised text. When it says not to change the document, leave "updated_content" null.
 
 CURRENT TODO LIST (1-based numbers):
 {digest}
@@ -884,7 +1099,7 @@ USER INSTRUCTION(S):
 
 Return valid JSON with:
 1. "reply": A helpful conversational answer. You may summarize, group items, suggest priorities, or confirm changes.
-2. "updated_content": The complete revised active document when a SKILL.md shortcut says to update it, otherwise null.
+2. "updated_content": The complete revised active document when a shortcut in SKILL.md or a reference file says to update it, otherwise null.
 3. "actions": An array of mutations to apply, or [] if the user only asked a question.
    Each action is an object:
    - {{"op":"add","text":"..."}}
@@ -907,7 +1122,7 @@ Indexes are 1-based. Use match when the user describes an item instead of number
                 lambda: client.models.generate_content(
                     model=GEMINI_MODEL,
                     contents=full_prompt,
-                    config=types.GenerateContentConfig(response_mime_type="application/json")
+                    config=gemini_json_config(),
                 )
             )
             data = clean_json_response(response.text)
@@ -916,9 +1131,9 @@ Indexes are 1-based. Use match when the user describes an item instead of number
             if not isinstance(actions, list):
                 actions = []
             updated_content = data.get("updated_content")
-            if not document_update_allowed(combined_prompts):
+            if not document_update_allowed(combined_prompts) or not allow_file_write:
                 updated_content = None
-            write_updated_document(vault, file_path, updated_content)
+            await asyncio.to_thread(write_updated_document, vault, file_path, updated_content)
             new_items, applied = apply_todo_actions(items, actions)
             if applied:
                 write_todo_state(vault, new_items, preamble, trailer)
@@ -992,15 +1207,21 @@ def get_files(vault: str = "default"):
 
 
 @app.get("/api/file")
-def get_file(vault: str = "default", path: Optional[str] = None, filename: Optional[str] = None):
+def get_file(response: Response, vault: str = "default", path: Optional[str] = None, filename: Optional[str] = None):
     rel = path or filename
     file_full_path = resolve_in_vault(vault, rel)
     if not file_full_path.is_file():
         raise HTTPException(status_code=404, detail="File not found")
+    content = file_full_path.read_text(encoding="utf-8")
+    encrypted = is_encrypted_text(content)
+    response.headers["Cache-Control"] = "no-store, max-age=0"
     return {
         "vault": sanitize_vault_name(vault),
         "filename": file_full_path.relative_to(vault_root(vault)).as_posix(),
-        "content": file_full_path.read_text(encoding="utf-8"),
+        "content": content,
+        "encrypted": encrypted,
+        "revision": file_revision(file_full_path),
+        "file_id": envelope_file_id(content) if encrypted else None,
     }
 
 
@@ -1012,25 +1233,123 @@ def download_file(vault: str = "default", path: Optional[str] = None):
     if not target.is_file():
         raise HTTPException(status_code=404, detail="File not found")
     media = "text/markdown; charset=utf-8" if target.suffix.lower() == ".md" else "application/octet-stream"
-    return FileResponse(
+    response = FileResponse(
         path=target,
         filename=target.name,
         media_type=media,
         content_disposition_type="attachment",
     )
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    return response
 
 
 @app.post("/api/file")
 def save_file(req: FileSaveRequest):
     with vault_lock(req.vault):
         file_full_path = resolve_in_vault(req.vault, req.file_path)
+        incoming_encrypted = is_encrypted_text(req.content)
+        if req.content.startswith(ENCRYPTED_PREFIX) and not incoming_encrypted:
+            raise HTTPException(status_code=400, detail="Invalid encrypted file")
+        existing_encrypted = is_encrypted_path(file_full_path)
+        if not file_full_path.exists() and incoming_encrypted:
+            raise HTTPException(status_code=409, detail="Use encrypted file creation")
+        if file_full_path.exists() and req.expected_revision:
+            if file_revision(file_full_path) != req.expected_revision:
+                raise HTTPException(status_code=409, detail="File changed on another device")
+        if existing_encrypted and not incoming_encrypted:
+            raise HTTPException(status_code=409, detail="Cannot save plaintext over an encrypted file")
+        if file_full_path.is_file() and not existing_encrypted and incoming_encrypted:
+            raise HTTPException(status_code=409, detail="Use confirmed conversion")
+        if existing_encrypted and incoming_encrypted:
+            old_id = envelope_file_id(file_full_path.read_text(encoding="utf-8"))
+            if envelope_file_id(req.content) != old_id:
+                raise HTTPException(status_code=409, detail="Encrypted file identity changed")
         file_full_path.parent.mkdir(parents=True, exist_ok=True)
-        file_full_path.write_text(req.content, encoding="utf-8")
+        atomic_write_text(file_full_path, req.content)
     return {
         "status": "saved",
         "vault": sanitize_vault_name(req.vault),
         "filename": file_full_path.relative_to(vault_root(req.vault)).as_posix(),
+        "revision": file_revision(file_full_path),
     }
+
+
+@app.post("/api/file/convert")
+def convert_file(req: FileConvertRequest):
+    if not req.confirmed:
+        raise HTTPException(status_code=400, detail="Conversion confirmation required")
+    try:
+        envelope = parse_envelope(req.content)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    with vault_lock(req.vault):
+        target = resolve_in_vault(req.vault, req.file_path)
+        if not target.is_file():
+            raise HTTPException(status_code=404, detail="File not found")
+        if is_encrypted_path(target):
+            raise HTTPException(status_code=409, detail="File is already encrypted")
+        relative = target.relative_to(vault_root(req.vault)).as_posix()
+        mark_conversion_pending(req.vault, relative)
+        atomic_write_text(target, req.content)
+        register_verifier(req.vault, str(envelope["file_id"]), req.verifier)
+        finish_conversion_cleanup(req.vault, relative)
+    return {
+        "status": "converted",
+        "vault": sanitize_vault_name(req.vault),
+        "filename": relative,
+        "revision": file_revision(target),
+        "file_id": envelope["file_id"],
+    }
+
+
+@app.post("/api/file/decrypt")
+def decrypt_file(req: FileDecryptRequest):
+    if not req.confirmed:
+        raise HTTPException(status_code=400, detail="Decryption confirmation required")
+    if is_encrypted_text(req.content) or req.content.startswith(ENCRYPTED_PREFIX):
+        raise HTTPException(status_code=400, detail="Expected plaintext")
+    with vault_lock(req.vault):
+        target = resolve_in_vault(req.vault, req.file_path)
+        if not is_encrypted_path(target):
+            raise HTTPException(status_code=409, detail="File is not encrypted")
+        if req.expected_revision and file_revision(target) != req.expected_revision:
+            raise HTTPException(status_code=409, detail="File changed on another device")
+        file_id = envelope_file_id(target.read_text(encoding="utf-8"))
+        atomic_write_text(target, req.content)
+        remove_identity_if_unused(req.vault, file_id, vault_root(req.vault))
+    return {
+        "status": "decrypted",
+        "vault": sanitize_vault_name(req.vault),
+        "filename": req.file_path,
+        "revision": file_revision(target),
+    }
+
+
+@app.get("/api/file/unlock-status")
+def unlock_status(vault: str, file_id: str):
+    name = sanitize_vault_name(vault)
+    if not _vault_has_file_id(name, file_id):
+        raise HTTPException(status_code=404, detail="Encrypted file identity not found")
+    return throttle_status(name, file_id)
+
+
+@app.post("/api/file/unlock-failure")
+def unlock_failure(req: UnlockReportRequest):
+    name = sanitize_vault_name(req.vault)
+    if not _vault_has_file_id(name, req.file_id):
+        raise HTTPException(status_code=404, detail="Encrypted file identity not found")
+    return report_unlock_failure(name, req.file_id)
+
+
+@app.post("/api/file/unlock-success")
+def unlock_success(req: UnlockReportRequest):
+    name = sanitize_vault_name(req.vault)
+    if not _vault_has_file_id(name, req.file_id):
+        raise HTTPException(status_code=404, detail="Encrypted file identity not found")
+    if not req.proof or not verify_deletion(name, req.file_id, req.proof):
+        raise HTTPException(status_code=400, detail="Invalid unlock proof")
+    report_unlock_success(name, req.file_id)
+    return {"status": "reset"}
 
 
 TODO_FILENAME = "TODO.md"
@@ -1066,10 +1385,160 @@ def skill_prompt_block(vault: str) -> str:
         "\n--- SKILL.md ---\n"
         f"{text}\n"
         "--- END SKILL.md ---\n"
-        "SKILL.md lists optional slash shortcuts. Follow one only when the user message uses that command, "
-        "and apply it to the active document. If they did not use a shortcut, ignore SKILL.md. "
-        "A shortcut is not a request to edit the file unless that shortcut says to change it.\n"
     )
+
+
+def normalize_rel_path(vault: str, rel_path: str) -> str:
+    """Vault-relative posix path. Rejects escapes without creating the vault."""
+    sanitize_vault_name(vault)
+    if not isinstance(rel_path, str) or not rel_path.strip():
+        raise HTTPException(status_code=400, detail="Missing file path")
+    raw = rel_path.strip()
+    if raw.startswith(("/", "\\")) or Path(raw).is_absolute():
+        raise HTTPException(status_code=400, detail="Invalid file path")
+    parts = []
+    for part in raw.replace("\\", "/").split("/"):
+        if part in {"", "."}:
+            continue
+        if part == "..":
+            raise HTTPException(status_code=400, detail="Invalid file path")
+        parts.append(part)
+    if not parts:
+        raise HTTPException(status_code=400, detail="Missing file path")
+    return "/".join(parts)
+
+
+def vault_has_skill_file(vault: str) -> bool:
+    try:
+        return resolve_in_vault(vault, SKILL_FILENAME).is_file()
+    except HTTPException:
+        return False
+
+
+def validate_context_paths(vault: str, paths: List[str]) -> List[str]:
+    cleaned: List[str] = []
+    seen = set()
+    for raw in paths:
+        if not isinstance(raw, str):
+            raise HTTPException(status_code=400, detail="Invalid file path")
+        rel = normalize_rel_path(vault, raw)
+        if rel in seen:
+            continue
+        seen.add(rel)
+        cleaned.append(rel)
+    return cleaned
+
+
+def resolve_prompt_paths(vault: str, context_files: Optional[List[str]]) -> List[str]:
+    """Posted paths win. Otherwise the saved list, or SKILL.md when nothing is saved."""
+    name = sanitize_vault_name(vault)
+    if context_files is not None:
+        return validate_context_paths(name, context_files)
+    if name in PROMPT_FILE_SELECTIONS:
+        return list(PROMPT_FILE_SELECTIONS[name])
+    return [SKILL_FILENAME]
+
+
+def context_file_bytes(vault: str, rel: str) -> int:
+    if rel == SKILL_FILENAME and not vault_has_skill_file(vault):
+        try:
+            return len(_BUNDLED_SKILL_PATH.read_bytes())
+        except OSError:
+            return 0
+    try:
+        path = resolve_in_vault(vault, rel)
+    except HTTPException:
+        return 0
+    if not path.is_file():
+        return 0
+    try:
+        return path.stat().st_size
+    except OSError:
+        return 0
+
+
+def prompt_file_entry(vault: str, rel: str) -> Dict[str, Any]:
+    bundled = rel == SKILL_FILENAME and not vault_has_skill_file(vault)
+    encrypted = False
+    if not bundled:
+        try:
+            encrypted = is_encrypted_path(resolve_in_vault(vault, rel))
+        except HTTPException:
+            encrypted = False
+    return {
+        "path": rel,
+        "bytes": context_file_bytes(vault, rel),
+        "label": ("SKILL.md (built-in)" if bundled else rel) + (" (encrypted; unavailable)" if encrypted else ""),
+        "encrypted": encrypted,
+    }
+
+
+def prompt_files_catalog(vault: str) -> Dict[str, Any]:
+    name = sanitize_vault_name(vault)
+    if name in PROMPT_FILE_SELECTIONS:
+        selected_paths = list(PROMPT_FILE_SELECTIONS[name])
+    else:
+        selected_paths = [SKILL_FILENAME]
+    selected = set(selected_paths)
+    available_paths = [path for path in list_vault_files(name) if path not in selected]
+    if SKILL_FILENAME not in selected and SKILL_FILENAME not in available_paths:
+        available_paths.append(SKILL_FILENAME)
+        available_paths.sort()
+    return {
+        "vault": name,
+        "available": [prompt_file_entry(name, path) for path in available_paths],
+        "selected": [prompt_file_entry(name, path) for path in selected_paths],
+    }
+
+
+def read_reference_text(vault: str, rel: str) -> str:
+    if rel == SKILL_FILENAME:
+        return read_skill_text(vault)
+    try:
+        path = resolve_in_vault(vault, rel)
+    except HTTPException:
+        return ""
+    if not path.is_file():
+        return ""
+    if is_encrypted_path(path):
+        return ""
+    try:
+        return path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        logger.warning("Could not read reference file %s/%s", vault, rel)
+        return ""
+
+
+def context_prompt_block(
+    vault: str,
+    context_files: Optional[List[str]],
+    active_path: Optional[str],
+) -> str:
+    paths = [SKILL_FILENAME] if context_files is None else context_files
+    active = ""
+    if active_path:
+        try:
+            active = normalize_rel_path(vault, active_path)
+        except HTTPException:
+            active = str(active_path).strip().lstrip("/")
+    blocks: List[str] = []
+    seen = set()
+    for rel in paths:
+        try:
+            key = normalize_rel_path(vault, rel)
+        except HTTPException:
+            continue
+        if key in seen or (active and key == active):
+            continue
+        seen.add(key)
+        text = read_reference_text(vault, key).strip()
+        if not text:
+            continue
+        if key == SKILL_FILENAME:
+            blocks.append(f"\n--- SKILL.md ---\n{text}\n--- END SKILL.md ---\n")
+        else:
+            blocks.append(f"\n--- REFERENCE {key} ---\n{text}\n--- END REFERENCE ---\n")
+    return "".join(blocks)
 
 
 def active_document_block(file_path: Optional[str], file_content: Optional[str]) -> str:
@@ -1099,10 +1568,83 @@ def write_updated_document(vault: str, file_path: Optional[str], updated_content
     try:
         file_full_path = resolve_in_vault(vault, file_path)
         with vault_lock(vault):
+            if is_encrypted_path(file_full_path):
+                logger.info("Skipped server-side write to encrypted file %s/%s", vault, file_path)
+                return
             file_full_path.parent.mkdir(parents=True, exist_ok=True)
-            file_full_path.write_text(updated_content, encoding="utf-8")
+            atomic_write_text(file_full_path, updated_content)
     except HTTPException:
         logger.warning("Skipped writing updated_content outside vault: %s/%s", vault, file_path)
+
+
+def _ephemeral_history_text(items: Optional[List[Dict[str, str]]]) -> str:
+    rows = []
+    for item in (items or [])[-10:]:
+        role = str(item.get("role") or "")
+        text = str(item.get("text") or "")
+        if role in {"user", "model"} and text:
+            rows.append(f"{role.upper()}: {text}")
+    return "\n".join(rows)
+
+
+async def process_ephemeral_chat(
+    req: ChatEnqueueRequest,
+    channel: str,
+    prompt: str,
+    context_files: List[str],
+) -> Dict[str, Any]:
+    history_text = _ephemeral_history_text(req.ephemeral_history)
+    reference_context = context_prompt_block(req.vault, context_files, req.file_path)
+    if channel == "todos":
+        items, preamble, trailer = read_todo_state(req.vault)
+        digest = format_todo_digest(items)
+        full_prompt = f"""You are Guppy, a concise to-do list manager for a writer.
+Today's date is {date.today().isoformat()}.
+CURRENT TODO LIST:
+{digest}
+{reference_context}
+RECENT CONVERSATION:
+{history_text}
+USER INSTRUCTION:
+{prompt}
+Return JSON with "reply" and "actions". Never delete items."""
+    else:
+        doc_context = active_document_block(req.file_path, req.file_content)
+        full_prompt = f"""You are an intelligent writing co-pilot.
+{doc_context}
+{reference_context}
+RECENT CONVERSATION:
+{history_text}
+USER INSTRUCTION:
+{prompt}
+Return JSON with "reply", "clarification", "updated_content", and "new_file"."""
+    response = await asyncio.to_thread(
+        lambda: client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=full_prompt,
+            config=gemini_json_config(),
+        )
+    )
+    data = clean_json_response(response.text)
+    if channel == "todos":
+        actions = data.get("actions") if isinstance(data.get("actions"), list) else []
+        new_items, applied = apply_todo_actions(items, actions)
+        if applied:
+            write_todo_state(req.vault, new_items, preamble, trailer)
+        return {
+            "reply": data.get("reply", "Done."),
+            "items": new_items,
+            "actions": applied,
+            "updated_content": None,
+        }
+    clarification = normalize_clarification(data.get("clarification"))
+    updated = None if clarification or not req.allow_file_write else data.get("updated_content")
+    return {
+        "reply": clarification or data.get("reply", "Done."),
+        "updated_content": updated,
+        "new_file": None if clarification else normalize_new_file(data.get("new_file")),
+        "clarification": clarification,
+    }
 
 
 @app.post("/api/preview")
@@ -1165,12 +1707,25 @@ def _create_file(req: FileCreateRequest):
             dest = next_available_path(dest)
     dest = resolve_in_vault(req.vault, rel_posix(req.vault, dest))
     dest.parent.mkdir(parents=True, exist_ok=True)
-    dest.write_text(req.content or "", encoding="utf-8")
+    content = req.content or ""
+    if content.startswith(ENCRYPTED_PREFIX):
+        try:
+            envelope = parse_envelope(content)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if not req.verifier:
+            raise HTTPException(status_code=400, detail="Missing deletion verifier")
+        atomic_write_text(dest, content)
+        register_verifier(req.vault, str(envelope["file_id"]), req.verifier)
+    else:
+        atomic_write_text(dest, content)
     return {
         "status": "created",
         "vault": sanitize_vault_name(req.vault),
         "filename": rel_posix(req.vault, dest),
-        "content": req.content or "",
+        "content": content,
+        "encrypted": is_encrypted_text(content),
+        "revision": file_revision(dest),
     }
 
 
@@ -1278,10 +1833,59 @@ def _copy_file(req: FileRelocateRequest):
 
 @app.delete("/api/file")
 def delete_file(vault: str = "default", path: Optional[str] = None):
-    if not path:
-        raise HTTPException(status_code=400, detail="Missing file path")
-    with vault_lock(vault):
-        return _delete_file(vault, path)
+    raise HTTPException(status_code=400, detail="Password-confirmed deletion required")
+
+
+@app.post("/api/file/delete-manifest")
+def delete_manifest(req: DeleteManifestRequest):
+    with vault_lock(req.vault):
+        manifest = _path_manifest(req.vault, req.path)
+    token = secrets.token_urlsafe(32)
+    with DELETE_MANIFESTS_LOCK:
+        DELETE_MANIFESTS[token] = {**manifest, "expires": time.time() + 300}
+    return {
+        "manifest": token,
+        "path": manifest["path"],
+        "entries": manifest["entries"],
+        "encrypted_ids": manifest["encrypted_ids"],
+        "expires_in": 300,
+    }
+
+
+@app.post("/api/file/delete-confirmed")
+def delete_confirmed(req: ConfirmDeleteRequest):
+    if not check_password(req.login_password):
+        raise HTTPException(status_code=400, detail="Current password is wrong")
+    with DELETE_MANIFESTS_LOCK:
+        manifest = DELETE_MANIFESTS.get(req.manifest)
+    if not manifest or float(manifest.get("expires", 0)) < time.time():
+        raise HTTPException(status_code=409, detail="Delete confirmation expired")
+    if manifest["vault"] != sanitize_vault_name(req.vault) or manifest["path"] != req.path:
+        raise HTTPException(status_code=409, detail="Delete confirmation does not match")
+    with vault_lock(req.vault):
+        try:
+            if not _manifest_matches(manifest):
+                raise HTTPException(status_code=409, detail="Folder changed; review deletion again")
+        except HTTPException:
+            raise
+        for file_id in manifest["encrypted_ids"]:
+            status = throttle_status(req.vault, file_id)
+            if status["blocked"]:
+                raise HTTPException(
+                    status_code=429,
+                    detail=f"Passphrase cooldown active for encrypted file {file_id}",
+                    headers={"Retry-After": str(status["retry_after"])},
+                )
+            proof = req.proofs.get(file_id)
+            if not proof or not verify_deletion(req.vault, file_id, proof):
+                report_unlock_failure(req.vault, file_id)
+                raise HTTPException(status_code=400, detail=f"Missing or wrong passphrase for encrypted file {file_id}")
+        result = _delete_file(req.vault, req.path)
+        for file_id in manifest["encrypted_ids"]:
+            remove_identity_if_unused(req.vault, file_id, vault_root(req.vault))
+    with DELETE_MANIFESTS_LOCK:
+        DELETE_MANIFESTS.pop(req.manifest, None)
+    return result
 
 
 def _delete_file(vault: str, path: str):
@@ -1353,25 +1957,62 @@ def api_history_restore(req: HistoryRestoreRequest):
     }
 
 
+@app.get("/api/prompt-files")
+def get_prompt_files(vault: str = "default"):
+    return prompt_files_catalog(vault)
+
+
+@app.put("/api/prompt-files")
+def put_prompt_files(req: PromptFilesUpdateRequest):
+    name = sanitize_vault_name(req.vault)
+    PROMPT_FILE_SELECTIONS[name] = validate_context_paths(name, req.selected)
+    save_prompt_files()
+    return prompt_files_catalog(name)
+
+
 @app.post("/api/chat/enqueue")
 async def enqueue_chat(req: ChatEnqueueRequest, background_tasks: BackgroundTasks):
+    if req.ephemeral:
+        raise HTTPException(status_code=400, detail="Ephemeral chat must use the synchronous endpoint")
+    context_files = resolve_prompt_paths(req.vault, req.context_files)
     channel, prompt = resolve_chat_channel(req)
     req.prompt = prompt
     vault, user_msg = _queue_user_message(req, channel=channel)
     if channel == "todos":
-        background_tasks.add_task(process_todo_queue, vault, req.file_path, req.file_content)
+        background_tasks.add_task(
+            process_todo_queue, vault, req.file_path, req.file_content, context_files, req.allow_file_write
+        )
     else:
-        background_tasks.add_task(process_chat_queue, vault, req.file_path, req.file_content)
+        background_tasks.add_task(
+            process_chat_queue, vault, req.file_path, req.file_content, context_files, req.allow_file_write
+        )
     return {"status": "queued", "channel": channel, "message": user_msg}
 
 
 @app.post("/api/chat")
 async def chat(req: ChatEnqueueRequest):
+    context_files = resolve_prompt_paths(req.vault, req.context_files)
     channel, prompt = resolve_chat_channel(req)
     req.prompt = prompt
+    if req.ephemeral:
+        result = await process_ephemeral_chat(req, channel, prompt, context_files)
+        reply = result.get("reply", "Done.")
+        return {
+            "response": reply,
+            "message": reply,
+            "channel": channel,
+            "items": result.get("items"),
+            "actions": result.get("actions") or [],
+            "updated_content": result.get("updated_content"),
+            "new_file": result.get("new_file"),
+            "clarification": result.get("clarification"),
+            "ephemeral": True,
+        }
     if channel == "todos":
         vault, _user_msg = _queue_user_message(req, channel="todos")
-        result = await process_todo_queue(vault, req.file_path, req.file_content) or {}
+        result = await process_todo_queue(
+            vault, req.file_path, req.file_content, context_files, req.allow_file_write
+        ) or {}
         reply = result.get("reply", "Done.")
         return {
             "response": reply,
@@ -1382,7 +2023,9 @@ async def chat(req: ChatEnqueueRequest):
             "updated_content": result.get("updated_content"),
         }
     vault, _user_msg = _queue_user_message(req, channel="writing")
-    result = await process_chat_queue(vault, req.file_path, req.file_content) or {}
+    result = await process_chat_queue(
+        vault, req.file_path, req.file_content, context_files, req.allow_file_write
+    ) or {}
     reply = result.get("reply", "Done.")
     return {
         "response": reply,
@@ -1401,9 +2044,20 @@ def get_chat_history(vault: str = "default", channel: str = "writing"):
 
 
 @app.post("/api/chat/clear")
-def clear_chat_history(req: ClearHistoryRequest):
-    vault = req.vault or "default"
+async def clear_chat_history(req: ClearHistoryRequest):
+    vault = sanitize_vault_name(req.vault or "default")
     channel = "todos" if (req.channel or "writing") in {"todos", "todo", "guppy"} else "writing"
-    chat_store(channel)[vault] = []
-    save_chat_histories()
+    async with get_vault_lock(vault):
+        chat_store(channel)[vault] = []
+        save_chat_histories()
     return {"status": "cleared", "vault": vault, "channel": channel}
+
+
+@app.post("/api/chat/clear-all")
+async def clear_all_chat(req: ClearHistoryRequest):
+    vault = sanitize_vault_name(req.vault or "default")
+    async with get_vault_lock(vault):
+        CHAT_HISTORIES[vault] = []
+        TODO_CHAT_HISTORIES[vault] = []
+        save_chat_histories()
+    return {"status": "cleared", "vault": vault, "channels": ["writing", "todos"]}

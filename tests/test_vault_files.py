@@ -13,6 +13,23 @@ from app.main import app, CHAT_HISTORIES
 client = TestClient(app)
 
 
+def confirmed_delete(vault: str, path: str):
+    manifest = client.post(
+        "/api/file/delete-manifest", json={"vault": vault, "path": path}
+    )
+    assert manifest.status_code == 200
+    return client.post(
+        "/api/file/delete-confirmed",
+        json={
+            "vault": vault,
+            "path": path,
+            "login_password": "test-password",
+            "manifest": manifest.json()["manifest"],
+            "proofs": {},
+        },
+    )
+
+
 @pytest.fixture
 def vaults_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
     monkeypatch.setattr(main, "VAULTS_DIR", tmp_path)
@@ -314,10 +331,10 @@ def test_create_rename_move_copy_delete(vaults_dir: Path):
         "destination": "",
         "conflict": "replace",
     })
-    assert replaced.status_code == 200
-    assert replaced.json()["filename"] == "scene.md"
+    assert replaced.status_code == 400
+    assert "password confirmation" in replaced.json()["detail"]
 
-    deleted = client.delete("/api/file?vault=books&path=scene.md")
+    deleted = confirmed_delete("books", "scene.md")
     assert deleted.status_code == 200
     assert not (vaults_dir / "books" / "scene.md").exists()
 
@@ -337,7 +354,7 @@ def test_rename_and_delete_folder(vaults_dir: Path):
     assert (vaults_dir / "books" / "chapters" / "scene.md").read_text(encoding="utf-8") == "draft"
     assert not (vaults_dir / "books" / "notes").exists()
 
-    removed = client.delete("/api/file?vault=books&path=chapters")
+    removed = confirmed_delete("books", "chapters")
     assert removed.status_code == 200
     assert removed.json()["kind"] == "folder"
     assert not (vaults_dir / "books" / "chapters").exists()
@@ -385,7 +402,7 @@ def test_create_and_delete_folder(vaults_dir: Path):
     assert kept.status_code == 200
     assert kept.json()["filename"] == "untitled (2)"
 
-    empty_removed = client.delete("/api/file?vault=books&path=untitled (2)")
+    empty_removed = confirmed_delete("books", "untitled (2)")
     assert empty_removed.status_code == 200
     assert empty_removed.json()["kind"] == "folder"
     assert not (vaults_dir / "books" / "untitled (2)").exists()
@@ -393,7 +410,7 @@ def test_create_and_delete_folder(vaults_dir: Path):
     after = client.get("/api/files?vault=books")
     assert "untitled (2)" not in after.json()["folders"]
 
-    nested_removed = client.delete("/api/file?vault=books&path=untitled")
+    nested_removed = confirmed_delete("books", "untitled")
     assert nested_removed.status_code == 200
     assert nested_removed.json()["kind"] == "folder"
     assert not (vaults_dir / "books" / "untitled").exists()

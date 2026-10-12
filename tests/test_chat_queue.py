@@ -1,4 +1,6 @@
 import json
+import asyncio
+import threading
 from pathlib import Path
 
 import pytest
@@ -12,11 +14,13 @@ client = TestClient(app)
 def reset_chat_history():
     """Resets memory state before every test run."""
     CHAT_HISTORIES.clear()
-    from app.main import TODO_CHAT_HISTORIES
+    from app.main import TODO_CHAT_HISTORIES, PROMPT_FILE_SELECTIONS
     TODO_CHAT_HISTORIES.clear()
+    PROMPT_FILE_SELECTIONS.clear()
     yield
     CHAT_HISTORIES.clear()
     TODO_CHAT_HISTORIES.clear()
+    PROMPT_FILE_SELECTIONS.clear()
 
 @patch("app.main.client.models.generate_content")
 def test_enqueue_chat_message(mock_gemini):
@@ -250,6 +254,44 @@ def test_grammar_updates_document_and_critique_does_not(mock_gemini, tmp_path, m
     assert (vault / "chapter.md").read_text(encoding="utf-8") == "The colour was grey."
 
 
+@patch("app.main.client.models.generate_content")
+def test_file_lock_blocks_document_writes(mock_gemini, tmp_path, monkeypatch):
+    from app import main
+    monkeypatch.setattr(main, "VAULTS_DIR", tmp_path)
+    vault = tmp_path / "books"
+    vault.mkdir()
+    (vault / "chapter.md").write_text("The color was gray.", encoding="utf-8")
+    mock_response = MagicMock()
+    mock_response.text = '{"reply": "Corrected spelling.", "updated_content": "The colour was grey.", "actions": [{"op": "add", "text": "Add milk"}]}'
+    mock_gemini.return_value = mock_response
+
+    locked = client.post("/api/chat", json={
+        "prompt": "/grammar",
+        "vault": "books",
+        "channel": "writing",
+        "file_path": "chapter.md",
+        "file_content": "The color was gray.",
+        "allow_file_write": False,
+    })
+    assert locked.status_code == 200
+    assert locked.json()["updated_content"] is None
+    assert (vault / "chapter.md").read_text(encoding="utf-8") == "The color was gray."
+    assert "The active document is locked." in _sent_prompt(mock_gemini)
+
+    guppy = client.post("/api/chat", json={
+        "prompt": "Add milk",
+        "vault": "books",
+        "channel": "todos",
+        "file_path": "chapter.md",
+        "file_content": "The color was gray.",
+        "allow_file_write": False,
+    })
+    assert guppy.status_code == 200
+    assert guppy.json()["updated_content"] is None
+    assert (vault / "chapter.md").read_text(encoding="utf-8") == "The color was gray."
+    assert any(item["text"] == "Add milk" for item in guppy.json()["items"])
+
+
 def _sent_prompt(mock_gemini) -> str:
     return mock_gemini.call_args.kwargs["contents"]
 
@@ -327,3 +369,253 @@ def test_guppy_chat_sends_skill_file_with_document(mock_gemini, tmp_path, monkey
     assert "/critique" in sent
     assert "She walked home." in sent
     assert "chapter.md" in sent
+
+
+@patch("app.main.client.models.generate_content")
+def test_document_write_does_not_freeze_other_requests(mock_gemini, tmp_path, monkeypatch):
+    """A snapshot holding the vault lock must not stop the event loop from answering."""
+    from httpx import ASGITransport, AsyncClient
+
+    from app import auth as auth_mod
+    from app import main
+    from app.history import vault_lock
+
+    monkeypatch.setattr(main, "VAULTS_DIR", tmp_path)
+    books = tmp_path / "books"
+    books.mkdir()
+    (books / "chapter.md").write_text("old", encoding="utf-8")
+    mock_response = MagicMock()
+    mock_response.text = '{"reply": "Revised.", "updated_content": "new text", "clarification": null, "new_file": null}'
+    mock_gemini.return_value = mock_response
+
+    entered = threading.Event()
+    release = threading.Event()
+    held = threading.Event()
+    real_write = main.write_updated_document
+
+    def blocking_write(vault, file_path, updated_content):
+        entered.set()
+        return real_write(vault, file_path, updated_content)
+
+    monkeypatch.setattr(main, "write_updated_document", blocking_write)
+
+    def hold_lock():
+        with vault_lock("books"):
+            held.set()
+            release.wait(timeout=8)
+
+    holder = threading.Thread(target=hold_lock, daemon=True)
+    holder.start()
+    assert held.wait(timeout=2)
+
+    token = client.cookies.get(auth_mod.COOKIE_NAME)
+
+    async def run():
+        transport = ASGITransport(app=app)
+        async with AsyncClient(
+            transport=transport,
+            base_url="http://test",
+            cookies={auth_mod.COOKIE_NAME: token},
+        ) as http:
+            async def post_chat():
+                return await http.post("/api/chat", json={
+                    "prompt": "Revise the opening",
+                    "vault": "books",
+                    "channel": "writing",
+                    "file_path": "chapter.md",
+                    "file_content": "old",
+                })
+
+            async def history_while_writing():
+                await asyncio.to_thread(entered.wait, 5)
+                return await http.get("/api/chat/history?vault=books&channel=writing")
+
+            post_task = asyncio.create_task(post_chat())
+            history = await asyncio.wait_for(history_while_writing(), timeout=3)
+            assert history.status_code == 200
+            assert not post_task.done()
+            release.set()
+            return await asyncio.wait_for(post_task, timeout=5)
+
+    try:
+        response = asyncio.run(run())
+    finally:
+        release.set()
+        holder.join(timeout=5)
+
+    assert response.status_code == 200
+    assert (books / "chapter.md").read_text(encoding="utf-8") == "new text"
+    config = mock_gemini.call_args.kwargs["config"]
+    assert config.automatic_function_calling.disable is True
+
+
+def _paths(entries):
+    return [item["path"] for item in entries]
+
+
+def test_prompt_file_selection_persists_and_defaults(tmp_path, monkeypatch):
+    from app import main
+    monkeypatch.setattr(main, "VAULTS_DIR", tmp_path)
+    vault = tmp_path / "books"
+    (vault / "notes").mkdir(parents=True)
+    (vault / "notes" / "cast.md").write_text("Cast list.", encoding="utf-8")
+    (vault / "notes" / "world.md").write_text("World notes.", encoding="utf-8")
+
+    missing = client.get("/api/prompt-files", params={"vault": "books"})
+    assert missing.status_code == 200
+    body = missing.json()
+    assert _paths(body["selected"]) == ["SKILL.md"]
+    assert body["selected"][0]["label"] == "SKILL.md (built-in)"
+    assert body["selected"][0]["bytes"] > 0
+    assert "notes/cast.md" in _paths(body["available"])
+    assert "SKILL.md" not in _paths(body["available"])
+
+    cleared = client.put("/api/prompt-files", json={"vault": "books", "selected": []})
+    assert cleared.status_code == 200
+    assert cleared.json()["selected"] == []
+    assert client.get("/api/prompt-files", params={"vault": "books"}).json()["selected"] == []
+    assert "SKILL.md" in _paths(client.get("/api/prompt-files", params={"vault": "books"}).json()["available"])
+
+    main.PROMPT_FILE_SELECTIONS.clear()
+    main.load_prompt_files()
+    reloaded_empty = client.get("/api/prompt-files", params={"vault": "books"})
+    assert reloaded_empty.json()["selected"] == []
+
+    ordered = client.put("/api/prompt-files", json={
+        "vault": "books",
+        "selected": ["notes/world.md", "notes/cast.md", "notes/cast.md"],
+    })
+    assert ordered.status_code == 200
+    assert _paths(ordered.json()["selected"]) == ["notes/world.md", "notes/cast.md"]
+    assert "notes/world.md" not in _paths(ordered.json()["available"])
+    assert ordered.json()["selected"][0]["bytes"] == len("World notes.".encode("utf-8"))
+
+    main.PROMPT_FILE_SELECTIONS.clear()
+    main.load_prompt_files()
+    reloaded = client.get("/api/prompt-files", params={"vault": "books"})
+    assert _paths(reloaded.json()["selected"]) == ["notes/world.md", "notes/cast.md"]
+
+    main.prompt_files_store_path().unlink()
+    main.PROMPT_FILE_SELECTIONS.clear()
+    main.load_prompt_files()
+    fresh = client.get("/api/prompt-files", params={"vault": "books"})
+    assert _paths(fresh.json()["selected"]) == ["SKILL.md"]
+
+
+def test_prompt_files_reject_paths_outside_the_vault(tmp_path, monkeypatch):
+    from app import main
+    monkeypatch.setattr(main, "VAULTS_DIR", tmp_path)
+    (tmp_path / "books").mkdir()
+    for bad in ("../escape.md", "/etc/passwd", "notes/../../escape.md"):
+        saved = client.put("/api/prompt-files", json={"vault": "books", "selected": [bad]})
+        assert saved.status_code == 400
+        chat = client.post("/api/chat", json={
+            "prompt": "Hi",
+            "vault": "books",
+            "channel": "writing",
+            "context_files": [bad],
+        })
+        assert chat.status_code == 400
+    assert "books" not in main.PROMPT_FILE_SELECTIONS
+
+
+@patch("app.main.client.models.generate_content")
+def test_posted_context_files_are_sent_in_order(mock_gemini, tmp_path, monkeypatch):
+    from app import main
+    monkeypatch.setattr(main, "VAULTS_DIR", tmp_path)
+    vault = tmp_path / "books"
+    (vault / "notes").mkdir(parents=True)
+    (vault / "notes" / "world.md").write_text("WORLD-MARKER", encoding="utf-8")
+    (vault / "notes" / "cast.md").write_text("CAST-MARKER", encoding="utf-8")
+    (vault / "other.md").write_text("OTHER-MARKER", encoding="utf-8")
+    mock_response = MagicMock()
+    mock_response.text = '{"reply": "Noted.", "updated_content": null}'
+    mock_gemini.return_value = mock_response
+
+    response = client.post("/api/chat", json={
+        "prompt": "Use the notes",
+        "vault": "books",
+        "channel": "writing",
+        "file_path": "chapter.md",
+        "file_content": "OPEN-MARKER",
+        "context_files": ["notes/world.md", "notes/cast.md"],
+    })
+    assert response.status_code == 200
+    sent = _sent_prompt(mock_gemini)
+    assert sent.index("WORLD-MARKER") < sent.index("CAST-MARKER")
+    assert "--- REFERENCE notes/world.md ---" in sent
+    assert "--- REFERENCE notes/cast.md ---" in sent
+    assert "OTHER-MARKER" not in sent
+    assert "/critique" not in sent
+    assert "OPEN-MARKER" in sent
+    assert "chapter.md" in sent
+
+    guppy = client.post("/api/chat", json={
+        "prompt": "What is on the list?",
+        "vault": "books",
+        "channel": "todos",
+        "file_path": "chapter.md",
+        "file_content": "OPEN-MARKER",
+        "context_files": ["notes/cast.md"],
+    })
+    assert guppy.status_code == 200
+    assert guppy.json()["channel"] == "todos"
+    guppy_sent = _sent_prompt(mock_gemini)
+    assert "CAST-MARKER" in guppy_sent
+    assert "WORLD-MARKER" not in guppy_sent
+    assert "/critique" not in guppy_sent
+
+
+@patch("app.main.client.models.generate_content")
+def test_saved_context_is_used_when_the_request_omits_it(mock_gemini, tmp_path, monkeypatch):
+    from app import main
+    monkeypatch.setattr(main, "VAULTS_DIR", tmp_path)
+    vault = tmp_path / "books"
+    (vault / "notes").mkdir(parents=True)
+    (vault / "notes" / "cast.md").write_text("CAST-MARKER", encoding="utf-8")
+    mock_response = MagicMock()
+    mock_response.text = '{"reply": "Noted.", "updated_content": null}'
+    mock_gemini.return_value = mock_response
+
+    saved = client.put("/api/prompt-files", json={"vault": "books", "selected": ["notes/cast.md"]})
+    assert saved.status_code == 200
+    response = client.post("/api/chat", json={
+        "prompt": "Who is in the scene?",
+        "vault": "books",
+        "channel": "writing",
+        "file_path": "chapter.md",
+        "file_content": "The door was red.",
+    })
+    assert response.status_code == 200
+    sent = _sent_prompt(mock_gemini)
+    assert "CAST-MARKER" in sent
+    assert "/critique" not in sent
+    assert "The door was red." in sent
+
+
+@patch("app.main.client.models.generate_content")
+def test_open_file_is_not_pasted_twice(mock_gemini, tmp_path, monkeypatch):
+    from app import main
+    monkeypatch.setattr(main, "VAULTS_DIR", tmp_path)
+    vault = tmp_path / "books"
+    vault.mkdir()
+    (vault / "chapter.md").write_text("DISK-ONLY-PHRASE", encoding="utf-8")
+    mock_response = MagicMock()
+    mock_response.text = '{"reply": "Noted.", "updated_content": null}'
+    mock_gemini.return_value = mock_response
+
+    response = client.post("/api/chat", json={
+        "prompt": "Tighten the opening",
+        "vault": "books",
+        "channel": "writing",
+        "file_path": "chapter.md",
+        "file_content": "EDITOR-ONLY-PHRASE",
+        "context_files": ["chapter.md", "SKILL.md"],
+    })
+    assert response.status_code == 200
+    sent = _sent_prompt(mock_gemini)
+    assert sent.count("EDITOR-ONLY-PHRASE") == 1
+    assert "DISK-ONLY-PHRASE" not in sent
+    assert "--- REFERENCE chapter.md ---" not in sent
+    assert "--- SKILL.md ---" in sent
+    assert "/critique" in sent

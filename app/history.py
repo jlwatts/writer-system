@@ -3,6 +3,7 @@
 import logging
 import os
 import re
+import shutil
 import subprocess
 import tempfile
 import threading
@@ -11,6 +12,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi import HTTPException
+
+from app.encryption import PREFIX, is_encrypted_path, is_encrypted_text
 
 logger = logging.getLogger("writer_app")
 
@@ -187,11 +190,24 @@ def snapshot_vault(vault: str) -> str | None:
             return None
         ensure_repo(vault)
         _run(vault, "add", "-A")
-        if head_commit(vault):
-            dirty = _run(vault, "diff", "--cached", "--quiet", check=False).returncode != 0
-        else:
-            status = _run(vault, "status", "--porcelain")
-            dirty = bool(status.stdout.strip())
+        for path in root.rglob("*"):
+            if not path.is_file():
+                continue
+            relative = path.relative_to(root)
+            if any(part.startswith(".") for part in relative.parts):
+                continue
+            if is_encrypted_path(path):
+                _run(
+                    vault,
+                    "rm",
+                    "--cached",
+                    "--ignore-unmatch",
+                    "--",
+                    relative.as_posix(),
+                    check=False,
+                )
+        status = _run(vault, "status", "--porcelain", "--untracked-files=no")
+        dirty = bool(status.stdout.strip())
         if not dirty:
             return None
         stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -245,6 +261,8 @@ def commit_branch(vault: str, branch: str, files: dict[str, str | None]) -> str:
                 if text is None:
                     _run(vault, "rm", "--cached", "--ignore-unmatch", "--", path, index=index, check=False)
                 else:
+                    if is_encrypted_text(text):
+                        raise ValueError("Encrypted files do not have WriterSystem history")
                     blob = _stdout(_run(vault, "hash-object", "-w", "--stdin", input_bytes=text.encode("utf-8"), index=index))
                     _run(vault, "update-index", "--add", "--cacheinfo", f"100644,{blob},{path}", index=index)
             tree = _stdout(_run(vault, "write-tree", index=index))
@@ -312,6 +330,8 @@ def _apply_tree(vault: str, tree: str) -> None:
                 dest.unlink()
             continue
         blob = _run(vault, "show", f"{tree}:{path}")
+        if blob.stdout.startswith(PREFIX.encode("ascii")):
+            raise HistoryError("Encrypted files cannot be applied from history")
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_bytes(blob.stdout)
 
@@ -384,6 +404,8 @@ def _relative_file(vault: str, path: str) -> str:
         raise HTTPException(status_code=400, detail="Missing file path")
     root = vault_root(vault)
     target = resolve_in_vault(vault, path)
+    if is_encrypted_path(target):
+        raise HTTPException(status_code=409, detail="Encrypted files do not have WriterSystem history")
     relative = target.relative_to(root).as_posix()
     if not relative or relative == ".":
         raise HTTPException(status_code=400, detail="Missing file path")
@@ -501,7 +523,16 @@ def restore_file(vault: str, path: str, rev: str) -> str:
     from app.main import resolve_in_vault
 
     target = resolve_in_vault(vault, path)
+    if is_encrypted_path(target):
+        raise HTTPException(status_code=409, detail="Cannot restore plaintext over an encrypted file")
     with vault_lock(vault):
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(text, encoding="utf-8")
     return text
+
+
+def purge_vault_history(vault: str) -> None:
+    """Permanently remove every WriterSystem revision for one vault."""
+    directory = repo_dir(vault)
+    if directory.exists():
+        shutil.rmtree(directory)

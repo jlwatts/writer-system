@@ -108,69 +108,60 @@ def env(**overrides):
 
 IPHONE = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15"
 IPAD = "Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X) AppleWebKit/605.1.15"
-MAC = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15"
 
 
-def test_iphone_double_enter_does_not_send():
-    for landscape in (False, True):
-        phone = env(userAgent=IPHONE, maxTouchPoints=5, screenWidth=390, screenHeight=844, landscape=landscape, coarsePointer=True)
-        assert COMPOSER["isIPhone"](phone) is True
-        assert COMPOSER["sendByDoubleEnter"](phone) is False
-        assert COMPOSER["doubleEnterSends"]("Revise the scene\n\n", phone) is False
+def sends(key, shift=False, ctrl=False, meta=False, alt=False):
+    return COMPOSER["shiftEnterSends"](key, shift, ctrl, meta, alt)
 
 
-def test_iphone_desktop_site_is_still_a_phone():
-    phone = env(userAgent=MAC, maxTouchPoints=5, screenWidth=430, screenHeight=932, landscape=False, coarsePointer=True)
-    assert COMPOSER["isIPhone"](phone) is True
-    assert COMPOSER["doubleEnterSends"]("Note\n\n", phone) is False
+def test_shift_enter_sends_on_iphone_ipad_and_desktop():
+    """The send chord does not depend on the device. Shift+Enter is the only one."""
+    assert sends("Enter", shift=True) is True
 
 
-def test_ipad_keeps_double_enter_send():
-    pad = env(userAgent=IPAD, maxTouchPoints=5, screenWidth=1024, screenHeight=768, landscape=True, coarsePointer=True)
-    assert COMPOSER["isIPhone"](pad) is False
-    assert COMPOSER["doubleEnterSends"]("Edit this\n\n", pad) is True
-    portrait = env(**{**pad, "landscape": False, "screenWidth": 768, "screenHeight": 1024})
-    assert COMPOSER["doubleEnterSends"]("Edit this\n\n", portrait) is True
+def test_plain_enter_does_not_send():
+    assert sends("Enter") is False
+    assert sends("a", shift=True) is False
 
 
-def test_ipad_desktop_site_is_not_a_phone():
-    pad = env(userAgent=MAC, maxTouchPoints=5, screenWidth=1024, screenHeight=768, landscape=True, coarsePointer=True)
-    assert COMPOSER["isIPhone"](pad) is False
-    assert COMPOSER["sendByDoubleEnter"](pad) is True
+def test_ctrl_cmd_and_alt_enter_do_not_send():
+    assert sends("Enter", shift=True, ctrl=True) is False
+    assert sends("Enter", shift=True, meta=True) is False
+    assert sends("Enter", shift=True, alt=True) is False
+    assert sends("Enter", ctrl=True) is False
+    assert sends("Enter", meta=True) is False
 
 
-def test_desktop_landscape_uses_modifier_instead_of_double_enter():
-    desktop = env(landscape=True, coarsePointer=False)
-    assert COMPOSER["doubleEnterSends"]("Paragraph\n\n", desktop) is False
-    portrait_window = env(landscape=False, coarsePointer=False)
-    assert COMPOSER["doubleEnterSends"]("Paragraph\n\n", portrait_window) is True
-
-
-def test_single_return_never_sends():
-    pad = env(userAgent=IPAD, maxTouchPoints=5, screenWidth=768, screenHeight=1024, landscape=False, coarsePointer=True)
-    assert COMPOSER["doubleEnterSends"]("Still typing\n", pad) is False
-    assert COMPOSER["doubleEnterSends"]("", pad) is False
-
-
-def test_placeholders_follow_the_same_rule():
-    phone = env(userAgent=IPHONE, maxTouchPoints=5, screenWidth=390, screenHeight=844, landscape=False, coarsePointer=True)
-    assert COMPOSER["composerPlaceholder"]("writing", phone) == "Ask AI or instruct edits…"
-    assert COMPOSER["composerPlaceholder"]("todos", phone) == "Ask Guppy…"
-    phone["landscape"] = True
-    assert "Ctrl+Enter" in COMPOSER["composerPlaceholder"]("writing", phone)
-
-    pad = env(userAgent=IPAD, maxTouchPoints=5, screenWidth=768, screenHeight=1024, landscape=False, coarsePointer=True)
-    assert "double-tap return" in COMPOSER["composerPlaceholder"]("writing", pad)
-
-    waiting = env(**{**phone, "awaiting": True})
+def test_placeholders_use_shift_enter_everywhere():
+    waiting = env(awaiting=True)
+    idle = env(awaiting=False)
     assert COMPOSER["composerPlaceholder"]("writing", waiting) == "Answer to continue..."
+    for device in (
+        env(userAgent=IPHONE, maxTouchPoints=5, screenWidth=390, screenHeight=844, landscape=False, coarsePointer=True),
+        env(userAgent=IPAD, maxTouchPoints=5, screenWidth=1024, screenHeight=768, landscape=True, coarsePointer=True),
+        env(landscape=True, coarsePointer=False),
+    ):
+        writing = COMPOSER["composerPlaceholder"]("writing", device)
+        todos = COMPOSER["composerPlaceholder"]("todos", device)
+        assert "Shift+Enter" in writing
+        assert "Shift+Enter" in todos
+        assert "Ctrl+Enter" not in writing
+        assert "double-tap" not in writing
+    assert COMPOSER["composerPlaceholder"]("writing", idle).startswith("Ask AI")
+    assert "doubleEnterSends" not in JS_PATH.read_text(encoding="utf-8")
+    assert "isIPhone" not in JS_PATH.read_text(encoding="utf-8")
 
 
-def test_page_uses_the_shared_rule():
+def test_page_uses_shift_enter_only():
     page = PAGE_PATH.read_text(encoding="utf-8")
     assert "/static/composer-keys.js" in page
-    assert "WriterComposer.doubleEnterSends(this.value, composerEnv())" in page
+    assert "WriterComposer.shiftEnterSends(" in page
     assert "WriterComposer.composerPlaceholder(" in page
+    assert "composerPlaceholder('writing')" not in page
+    assert "function setChatAwaiting(waiting)" in page
+    assert "syncComposerPlaceholders();" in page
+    assert "doubleEnterSends" not in page
+    assert "Ctrl+Enter" not in page
     assert "function isIPhone(" not in page
     assert "function sendByDoubleEnter(" not in page
 
