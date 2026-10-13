@@ -165,7 +165,8 @@ def test_integration_conversion_runs_destructive_cleanup(vaults: Path, monkeypat
 
 # THROTTLE-U-001/THROTTLE-I-001 — Unit/integration: Given wrong unlocks, when failures are reported after each
 # cooldown, then waits double through 512 minutes; success clears the state.
-def test_integration_unlock_throttle_persists_and_caps_at_ten():
+def test_integration_unlock_throttle_persists_and_caps_at_ten(monkeypatch):
+    monkeypatch.setattr("app.encryption.UNLOCK_COOLDOWNS_ENABLED", True)
     file_id = b64(16, 8)
     now = 1_000.0
     for failure in range(1, 11):
@@ -176,6 +177,20 @@ def test_integration_unlock_throttle_persists_and_caps_at_ten():
     assert throttle_status("v", file_id, now=now)["failures"] == 10
     report_unlock_success("v", file_id)
     assert throttle_status("v", file_id, now=now)["failures"] == 0
+
+
+# Temporary policy — Given cooldowns are disabled, when wrong passphrases are
+# reported, then attempts remain immediately available while the failure count
+# and tenth-failure response are retained.
+def test_wrong_password_cooldown_is_temporarily_disabled(monkeypatch):
+    monkeypatch.setattr("app.encryption.UNLOCK_COOLDOWNS_ENABLED", False)
+    file_id = b64(16, 10)
+    for failure in range(1, 11):
+        status = report_unlock_failure("v", file_id, now=1_000.0)
+        assert status["failures"] == failure
+        assert status["blocked"] is False
+        assert status["retry_after"] == 0
+    assert throttle_status("v", file_id, now=1_000.0)["failures"] == 10
 
 
 # THROTTLE-I-007 — Integration: Given a throttled encrypted identity, when an attacker posts an

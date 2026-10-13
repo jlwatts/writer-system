@@ -24,6 +24,9 @@ EXPECTED_FIELDS = {
     "v", "kdf", "iterations", "salt", "file_id", "nonce", "ciphertext", "tag"
 }
 _STATE_LOCK = threading.RLock()
+# Temporarily disabled by default. Set to 1 to restore exponential waits
+# without changing the persisted failure-count or tenth-failure policy.
+UNLOCK_COOLDOWNS_ENABLED = os.getenv("ENCRYPTION_UNLOCK_COOLDOWNS", "0") == "1"
 
 
 def _auth_dir() -> Path:
@@ -212,6 +215,8 @@ def throttle_status(vault: str, file_id: str, now: float | None = None) -> dict[
         item = _load_state()["throttles"].get(_identity(vault, file_id), {})
     failures = int(item.get("failures", 0))
     until = float(item.get("until", 0))
+    if not UNLOCK_COOLDOWNS_ENABLED:
+        until = 0
     return {
         "failures": failures,
         "until": until,
@@ -227,10 +232,10 @@ def report_unlock_failure(vault: str, file_id: str, now: float | None = None) ->
         state = _load_state()
         current = state["throttles"].get(key, {})
         until = float(current.get("until", 0))
-        if moment < until:
+        if UNLOCK_COOLDOWNS_ENABLED and moment < until:
             return throttle_status(vault, file_id, moment)
         failures = min(10, int(current.get("failures", 0)) + 1)
-        minutes = 2 ** (failures - 1)
+        minutes = 2 ** (failures - 1) if UNLOCK_COOLDOWNS_ENABLED else 0
         state["throttles"][key] = {"failures": failures, "until": moment + minutes * 60}
         _save_state(state)
     return throttle_status(vault, file_id, moment)

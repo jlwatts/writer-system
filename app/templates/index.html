@@ -788,7 +788,10 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ vault: currentVault(), file_id: fileId }),
                 }).then(res => res.json()).catch(() => ({}));
-                alert(`Could not unlock file. Try again in ${Math.ceil((failed.retry_after || 60) / 60)} minute(s).`);
+                const wait = Number(failed.retry_after) || 0;
+                alert(wait > 0
+                    ? `Could not unlock file. Try again in ${Math.ceil(wait / 60)} minute(s).`
+                    : 'Could not unlock file.');
                 if ((failed.failures || 0) >= 10) secureLogout();
                 return null;
             }
