@@ -6,15 +6,6 @@ html, body {
     touch-action: pan-y;
 }
 
-/* iOS disables sibling fields to hide Safari's arrows/Find bar; keep them looking normal. */
-html.ios-field-bar input:disabled,
-html.ios-field-bar textarea:disabled,
-html.ios-field-bar select:disabled {
-    opacity: 1;
-    -webkit-text-fill-color: inherit;
-    color: inherit;
-}
-
 :root {
     --app-header-h: 3.5rem;
 }
@@ -153,8 +144,54 @@ main {
 #outline-menu.hidden,
 #context-menu.hidden,
 #markdown-preview.hidden,
-#editor-textarea.hidden {
+#editor-textarea.hidden,
+#editor-lock.hidden {
     display: none !important;
+}
+
+.editor-lock {
+    flex: 1 1 auto;
+    min-height: 0;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 1.25rem;
+    background: #1f2937;
+    border: 1px solid #374151;
+    border-radius: 0.5rem;
+    color: #d1d5db;
+}
+
+.editor-lock-icon {
+    width: min(14rem, 46%);
+    height: auto;
+    aspect-ratio: 1;
+    flex-shrink: 0;
+}
+
+.editor-unlock-link {
+    border: 0;
+    background: transparent;
+    padding: 0;
+    color: #818cf8;
+    font-size: 0.95rem;
+    line-height: 1.25rem;
+    text-decoration: underline;
+    text-underline-offset: 0.18rem;
+    cursor: pointer;
+}
+
+.editor-unlock-link:hover,
+.editor-unlock-link:focus-visible {
+    color: #c7d2fe;
+}
+
+#secure-secret:disabled,
+#secure-secret-confirm:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
 }
 
 .edge-rail:hover {

@@ -23,6 +23,7 @@ from app.encryption import (
     report_unlock_failure,
     report_unlock_success,
     throttle_status,
+    verify_deletion,
 )
 from app.main import app
 
@@ -165,8 +166,7 @@ def test_integration_conversion_runs_destructive_cleanup(vaults: Path, monkeypat
 
 # THROTTLE-U-001/THROTTLE-I-001 — Unit/integration: Given wrong unlocks, when failures are reported after each
 # cooldown, then waits double through 512 minutes; success clears the state.
-def test_integration_unlock_throttle_persists_and_caps_at_ten(monkeypatch):
-    monkeypatch.setattr("app.encryption.UNLOCK_COOLDOWNS_ENABLED", True)
+def test_integration_unlock_throttle_persists_and_caps_at_ten():
     file_id = b64(16, 8)
     now = 1_000.0
     for failure in range(1, 11):
@@ -179,10 +179,10 @@ def test_integration_unlock_throttle_persists_and_caps_at_ten(monkeypatch):
     assert throttle_status("v", file_id, now=now)["failures"] == 0
 
 
-# Temporary policy — Given cooldowns are disabled, when wrong passphrases are
-# reported, then attempts remain immediately available while the failure count
-# and tenth-failure response are retained.
-def test_wrong_password_cooldown_is_temporarily_disabled(monkeypatch):
+# THROTTLE-U-002 — Given ENCRYPTION_UNLOCK_COOLDOWNS=0, when wrong passphrases
+# are reported, then attempts remain immediately available while the failure
+# count and tenth-failure response are retained.
+def test_unlock_cooldowns_can_be_disabled_with_env(monkeypatch):
     monkeypatch.setattr("app.encryption.UNLOCK_COOLDOWNS_ENABLED", False)
     file_id = b64(16, 10)
     for failure in range(1, 11):
@@ -311,6 +311,70 @@ def test_integration_confirmed_folder_delete(vaults: Path):
     assert not (vaults / "v" / "folder").exists()
 
 
+# REKEY-I-001/REKEY-I-002 — Integration: Given an encrypted note, when its
+# passphrase is changed, then the file identity stays the same, the new
+# deletion verifier works, and the previous verifier is rejected.
+def test_integration_rekey_replaces_verifier_without_changing_identity(vaults: Path):
+    file_id = b64(16, 11)
+    old_verifier = b64(32, 12)
+    new_verifier = b64(32, 13)
+    created = client.post(
+        "/api/file/create",
+        json={
+            "vault": "v",
+            "name": "secret.md",
+            "content": envelope(file_id=file_id),
+            "verifier": old_verifier,
+        },
+    ).json()
+    new_envelope = envelope(file_id=file_id, nonce_byte=9)
+    changed = client.post(
+        "/api/file/rekey",
+        json={
+            "vault": "v",
+            "file_path": "secret.md",
+            "content": new_envelope,
+            "verifier": new_verifier,
+            "expected_revision": created["revision"],
+        },
+    )
+    assert changed.status_code == 200
+    assert changed.json()["file_id"] == file_id
+    assert (vaults / "v" / "secret.md").read_text() == new_envelope
+
+    assert verify_deletion("v", file_id, old_verifier) is False
+    assert verify_deletion("v", file_id, new_verifier) is True
+
+    identity_attack = client.post(
+        "/api/file/rekey",
+        json={
+            "vault": "v",
+            "file_path": "secret.md",
+            "content": envelope(file_id=b64(16, 14)),
+            "verifier": b64(32, 15),
+            "expected_revision": changed.json()["revision"],
+        },
+    )
+    assert identity_attack.status_code == 409
+    assert (vaults / "v" / "secret.md").read_text() == new_envelope
+
+
+# REKEY-B-001 — Browser component: Given an unlocked encrypted note, when the
+# passphrase control is used, then the page asks for the current secret,
+# confirms a new one, and posts the rewrapped envelope.
+def test_browser_component_encrypted_passphrase_change_is_wired():
+    source = Path(main.__file__).with_name("templates").joinpath("index.html").read_text()
+    assert 'id="secure-passphrase-btn"' in source
+    assert 'onclick="changeEncryptedPassphrase()"' in source
+    start = source.index("async function changeEncryptedPassphrase")
+    body = source[start : source.index("\n        async function", start + 20)]
+    assert "askPassphrase(false, 'Current file passphrase')" in body
+    assert "askPassphrase(true, 'New file passphrase')" in body
+    assert "WriterCrypto.rewrap" in body
+    assert "fetch('/api/file/rekey'" in body
+    assert body.index("WriterCrypto.rewrap") < body.index("fetch('/api/file/rekey'")
+
+
 # DELETE-B-001 — Browser component: Given any password or passphrase prompt,
 # when it is displayed, then it uses masked password inputs and never the
 # browser's plaintext window.prompt dialog.
@@ -400,6 +464,44 @@ def test_browser_component_lock_contract_is_wired():
     assert "window.addEventListener('pagehide'" in source
     assert "document.addEventListener('visibilitychange'" in source
     assert "lockEncryptedSession('logout'" in source
+
+
+# LOCK-B-006 — Browser component: Given two unlocked encrypted notes, when one is
+# deleted, then only that note's key is forgotten so the other stays unlocked.
+def test_browser_component_delete_keeps_other_unlocked_notes():
+    source = Path(main.__file__).with_name("templates").joinpath("index.html").read_text()
+    start = source.index("async function deleteSelected")
+    body = source[start : source.index("\n        async function downloadFiles")]
+    assert "WriterCrypto.forgetUnder(item.path)" in body
+    assert "lockEncryptedSession('deleted')" not in body
+    assert "forgetAll" not in body
+    assert "WriterCrypto.keyCount() === 0" in body
+
+
+# LOCK-B-005 — Browser component: Given a locked encrypted note, when the editor is shown,
+# then it is disabled behind a lock control. A cooldown shows the usual wait message
+# above the passphrase field and disables the passphrase field and unlock button.
+def test_browser_component_locked_editor_prompts_to_unlock():
+    source = Path(main.__file__).with_name("templates").joinpath("index.html").read_text()
+    assert 'id="editor-lock"' in source
+    assert 'id="editor-unlock"' in source
+    assert 'onclick="unlockCurrentFile()"' in source
+    assert "editor.disabled = locked" in source
+    lock = source[source.index("function syncEditorLock"):source.index("function requestSecureSecret")]
+    assert "editor.classList.add('hidden')" in lock
+    assert "panel.classList.remove('hidden')" in lock
+    unlock = source[source.index("async function unlockEnvelope"):source.index("function setCurrentFile")]
+    assert "unlockCooldownMessage(status.retry_after, false)" in unlock
+    assert "unlockCooldownMessage(wait, true)" in unlock
+    assert "Could not unlock file. Try again in ${minutes} minute(s)." in source
+    assert "Try again in ${minutes} minute(s)." in source
+    assert 'id="secure-secret-block"' in source
+    block_at = source.index('id="secure-secret-block"')
+    field_at = source.index('id="secure-secret" type="password"')
+    assert block_at < field_at
+    assert "secret.disabled = secureSecretBlocked" in source
+    assert "submit.disabled = secureSecretBlocked" in source
+    assert "if (secureSecretBlocked) return" in source
 
 
 # SAVE-B-004/SAVE-I-001 — Browser-component contract: Given encrypted editing, when autosave runs, then

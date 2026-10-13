@@ -24,9 +24,9 @@ EXPECTED_FIELDS = {
     "v", "kdf", "iterations", "salt", "file_id", "nonce", "ciphertext", "tag"
 }
 _STATE_LOCK = threading.RLock()
-# Temporarily disabled by default. Set to 1 to restore exponential waits
-# without changing the persisted failure-count or tenth-failure policy.
-UNLOCK_COOLDOWNS_ENABLED = os.getenv("ENCRYPTION_UNLOCK_COOLDOWNS", "0") == "1"
+# Exponential unlock waits. Set ENCRYPTION_UNLOCK_COOLDOWNS=0 to disable
+# waits while keeping the failure-count and tenth-failure policy.
+UNLOCK_COOLDOWNS_ENABLED = os.getenv("ENCRYPTION_UNLOCK_COOLDOWNS", "1") == "1"
 
 
 def _auth_dir() -> Path:

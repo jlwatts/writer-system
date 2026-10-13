@@ -32,7 +32,6 @@
     <script type="module" src="/static/compare-view.js?v={{ asset_version }}"></script>
     <script src="/static/composer-keys.js?v={{ asset_version }}"></script>
     <script src="/static/chat-send.js?v={{ asset_version }}"></script>
-    <script src="/static/field-isolation.js?v={{ asset_version }}"></script>
     <script src="/static/vault-crypto.js?v={{ asset_version }}"></script>
 </head>
 <body class="bg-gray-900 text-gray-100 h-full w-full font-sans antialiased relative">
@@ -113,6 +112,7 @@
                     <button type="button" onclick="createNewFile('')" class="toolbar-btn" title="New file">+ New</button>
                     <button type="button" onclick="createEncryptedFile('')" class="toolbar-btn" title="New encrypted file">+ Encrypted</button>
                     <button type="button" id="encrypt-file-btn" onclick="toggleFileEncryption()" class="toolbar-btn">Encrypt</button>
+                    <button type="button" id="secure-passphrase-btn" onclick="changeEncryptedPassphrase()" class="toolbar-btn hidden">Passphrase</button>
                     <button type="button" id="secure-lock-btn" onclick="lockEncryptedSession('manual')" class="toolbar-btn hidden">Lock</button>
                     <button type="button" id="find-toggle-btn" onclick="toggleFindBar()" class="toolbar-btn">Find</button>
                     <button type="button" id="history-open-btn" onclick="openHistory(currentFilePath)" class="toolbar-btn">History</button>
@@ -146,7 +146,13 @@
                         <button type="button" onclick="toggleFindBar(false)" class="px-2 py-1 rounded bg-gray-700 text-gray-200">Close</button>
                     </div>
                 </div>
-                <textarea id="editor-textarea" enterkeyhint="enter" autocomplete="off" class="w-full min-w-0 flex-1 min-h-0 bg-gray-800 text-gray-100 p-3.5 rounded-lg border border-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono text-sm resize-none" placeholder="Create a new file or select one from the sidebar..."></textarea>
+                <textarea id="editor-textarea" inputmode="text" enterkeyhint="enter" autocomplete="off" class="w-full min-w-0 flex-1 min-h-0 bg-gray-800 text-gray-100 p-3.5 rounded-lg border border-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono text-sm resize-none" placeholder="Create a new file or select one from the sidebar..."></textarea>
+                <div id="editor-lock" class="editor-lock hidden" role="region" aria-label="Locked file">
+                    <svg class="editor-lock-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                        <path d="M12 1.5A5.25 5.25 0 0 0 6.75 6.75V9H6a2.25 2.25 0 0 0-2.25 2.25v8.25A2.25 2.25 0 0 0 6 21.75h12a2.25 2.25 0 0 0 2.25-2.25V11.25A2.25 2.25 0 0 0 18 9h-.75V6.75A5.25 5.25 0 0 0 12 1.5Zm-3 7.5V6.75a3 3 0 1 1 6 0V9H9Zm3 3.75a1.75 1.75 0 0 1 .875 3.26V18.5h-1.75v-2.49A1.75 1.75 0 0 1 12 12.75Z"/>
+                    </svg>
+                    <button type="button" id="editor-unlock" class="editor-unlock-link" onclick="unlockCurrentFile()">Unlock</button>
+                </div>
                 <div id="markdown-preview" tabindex="0" class="hidden w-full min-w-0 flex-1 min-h-0 overflow-y-auto overflow-x-hidden bg-gray-800 text-gray-100 p-4 rounded-lg border border-gray-700 prose prose-invert max-w-none"></div>
                 <div id="editor-status" class="shrink-0 mt-2 flex items-center justify-between text-[11px] sm:text-xs text-gray-500">
                     <span id="editor-word-count">0 words</span>
@@ -424,6 +430,7 @@
             <h3 id="secure-secret-title" class="text-sm font-semibold text-gray-100 mb-2">Enter password</h3>
             <p id="secure-secret-message" class="text-xs text-gray-400 mb-3"></p>
             <label id="secure-secret-label" class="block text-xs text-gray-300 mb-1" for="secure-secret">Password</label>
+            <p id="secure-secret-block" class="hidden text-xs text-amber-300 mb-2" role="alert"></p>
             <input id="secure-secret" type="password" required class="w-full bg-gray-900 border border-gray-600 rounded-md px-2 py-1.5 text-sm mb-2">
             <div id="secure-secret-confirm-row" class="hidden">
                 <label class="block text-xs text-gray-300 mb-1" for="secure-secret-confirm">Confirm password</label>
@@ -431,8 +438,8 @@
             </div>
             <p id="secure-secret-error" class="text-xs text-red-400 min-h-[1rem] mb-2"></p>
             <div class="flex justify-end gap-2">
-                <button type="button" onclick="closeSecureSecret()" class="px-3 py-1.5 text-xs rounded-md bg-gray-700 text-gray-200 hover:bg-gray-600">Cancel</button>
-                <button type="submit" class="px-3 py-1.5 text-xs rounded-md bg-indigo-600 text-white hover:bg-indigo-500">Continue</button>
+                <button type="button" id="secure-secret-cancel" onclick="closeSecureSecret()" class="px-3 py-1.5 text-xs rounded-md bg-gray-700 text-gray-200 hover:bg-gray-600">Cancel</button>
+                <button type="submit" id="secure-secret-submit" class="px-3 py-1.5 text-xs rounded-md bg-indigo-600 text-white hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed">Continue</button>
             </div>
         </form>
     </div>
@@ -605,14 +612,59 @@
             const encryptBtn = document.getElementById('encrypt-file-btn');
             const lockBtn = document.getElementById('secure-lock-btn');
             if (encryptBtn) encryptBtn.textContent = currentEncrypted ? 'Decrypt' : 'Encrypt';
-            if (lockBtn) lockBtn.classList.toggle('hidden', !currentEncrypted || !WriterCrypto.recall(currentFilePath));
+            const unlocked = currentEncrypted && !!WriterCrypto.recall(currentFilePath);
+            if (lockBtn) lockBtn.classList.toggle('hidden', !unlocked);
+            const passphraseBtn = document.getElementById('secure-passphrase-btn');
+            if (passphraseBtn) passphraseBtn.classList.toggle('hidden', !unlocked);
             const historyBtn = document.getElementById('history-open-btn');
             if (historyBtn) historyBtn.disabled = currentEncrypted;
+            syncEditorLock();
+        }
+
+        function editorIsLocked() {
+            return !!(currentEncrypted && currentFilePath && !WriterCrypto.recall(currentFilePath));
+        }
+
+        function syncEditorLock() {
+            const locked = editorIsLocked();
+            const panel = document.getElementById('editor-lock');
+            const preview = document.getElementById('markdown-preview');
+            if (!editor || !panel || !preview) return;
+            editor.disabled = locked;
+            if (locked) {
+                editor.classList.add('hidden');
+                preview.classList.add('hidden');
+                panel.classList.remove('hidden');
+                return;
+            }
+            panel.classList.add('hidden');
+            editor.classList.toggle('hidden', previewOn);
+            preview.classList.toggle('hidden', !previewOn);
         }
 
         let secureSecretResolver = null;
         let secureSecretMinimum = 1;
         let secureSecretNeedsConfirmation = false;
+        let secureSecretBlocked = false;
+
+        function applySecureSecretBlock(message) {
+            const secret = document.getElementById('secure-secret');
+            const confirmation = document.getElementById('secure-secret-confirm');
+            const submit = document.getElementById('secure-secret-submit');
+            const block = document.getElementById('secure-secret-block');
+            secureSecretBlocked = !!message;
+            if (block) {
+                block.textContent = message || '';
+                block.classList.toggle('hidden', !message);
+            }
+            if (secret) secret.disabled = secureSecretBlocked;
+            if (confirmation) confirmation.disabled = secureSecretBlocked;
+            if (submit) submit.disabled = secureSecretBlocked;
+            if (secureSecretBlocked) {
+                if (secret) secret.required = false;
+                if (confirmation) confirmation.required = false;
+            }
+        }
 
         function requestSecureSecret({
             title = 'Enter password',
@@ -621,6 +673,7 @@
             confirmValue = false,
             minLength = 1,
             autocomplete = 'current-password',
+            blockedMessage = '',
         } = {}) {
             if (secureSecretResolver) closeSecureSecret();
             const modal = document.getElementById('secure-secret-modal');
@@ -639,10 +692,13 @@
             confirmation.minLength = secureSecretMinimum;
             confirmation.autocomplete = autocomplete === 'new-password' ? 'new-password' : 'off';
             confirmation.required = secureSecretNeedsConfirmation;
+            secret.required = true;
             document.getElementById('secure-secret-confirm-row').classList.toggle('hidden', !secureSecretNeedsConfirmation);
+            applySecureSecretBlock(blockedMessage);
             modal.classList.remove('hidden');
             modal.classList.add('flex');
-            secret.focus();
+            if (secureSecretBlocked) document.getElementById('secure-secret-cancel').focus();
+            else secret.focus();
             return new Promise(resolve => {
                 secureSecretResolver = resolve;
             });
@@ -652,6 +708,9 @@
             const modal = document.getElementById('secure-secret-modal');
             document.getElementById('secure-secret-form').reset();
             document.getElementById('secure-secret-error').textContent = '';
+            applySecureSecretBlock('');
+            const secret = document.getElementById('secure-secret');
+            if (secret) secret.required = true;
             modal.classList.add('hidden');
             modal.classList.remove('flex');
             const resolve = secureSecretResolver;
@@ -661,6 +720,7 @@
 
         function submitSecureSecret(event) {
             event.preventDefault();
+            if (secureSecretBlocked) return;
             const first = document.getElementById('secure-secret').value;
             const second = document.getElementById('secure-secret-confirm').value;
             const error = document.getElementById('secure-secret-error');
@@ -675,7 +735,7 @@
             closeSecureSecret(first);
         }
 
-        function askPassphrase(confirmValue = false, label = 'File passphrase') {
+        function askPassphrase(confirmValue = false, label = 'File passphrase', blockedMessage = '') {
             return requestSecureSecret({
                 title: label,
                 label,
@@ -683,7 +743,15 @@
                 confirmValue,
                 minLength: WriterCrypto.MIN_PASSPHRASE,
                 autocomplete: confirmValue ? 'new-password' : 'current-password',
+                blockedMessage,
             });
+        }
+
+        function unlockCooldownMessage(retryAfter, failed) {
+            const minutes = Math.ceil((Number(retryAfter) || 0) / 60);
+            return failed
+                ? `Could not unlock file. Try again in ${minutes} minute(s).`
+                : `Try again in ${minutes} minute(s).`;
         }
 
         async function clearChat(channel, quiet = false) {
@@ -774,7 +842,7 @@
             const statusRes = await fetch(`/api/file/unlock-status?vault=${encodeURIComponent(currentVault())}&file_id=${encodeURIComponent(fileId)}`);
             const status = statusRes.ok ? await statusRes.json() : {};
             if (status.blocked) {
-                alert(`Try again in ${Math.ceil((status.retry_after || 0) / 60)} minute(s).`);
+                await askPassphrase(false, 'Unlock passphrase', unlockCooldownMessage(status.retry_after, false));
                 return null;
             }
             const passphrase = await askPassphrase(false, 'Unlock passphrase');
@@ -789,9 +857,8 @@
                     body: JSON.stringify({ vault: currentVault(), file_id: fileId }),
                 }).then(res => res.json()).catch(() => ({}));
                 const wait = Number(failed.retry_after) || 0;
-                alert(wait > 0
-                    ? `Could not unlock file. Try again in ${Math.ceil(wait / 60)} minute(s).`
-                    : 'Could not unlock file.');
+                if (wait > 0) await askPassphrase(false, 'Unlock passphrase', unlockCooldownMessage(wait, true));
+                else alert('Could not unlock file.');
                 if ((failed.failures || 0) >= 10) secureLogout();
                 return null;
             }
@@ -865,7 +932,6 @@
         }
 
         function switchTab(tabName, options = {}) {
-            restoreIsolatedFields();
             if (tabName === 'conversation' && isLandscapeChat()) {
                 setChatOpen(true);
                 if (!options.skipHistory) loadChatHistory('writing');
@@ -891,8 +957,6 @@
                 if (!options.skipHistory) loadChatHistory('todos');
             }
             if (tabName === 'conversation' && !options.skipHistory) loadChatHistory('writing');
-            const active = document.activeElement;
-            if (active === editor || active === chatInput || active === guppyInput) isolateField(active);
         }
 
         function applyFilesPane() {
@@ -1040,6 +1104,7 @@
         }
 
         editor.addEventListener('input', () => {
+            if (editor.disabled) return;
             setSaveStatus('Unsaved', 'text-amber-400');
             scheduleAutosave();
             scheduleWordCount();
@@ -1190,6 +1255,7 @@
             currentEnvelope = '';
             currentRevision = '';
             editor.value = '';
+            syncEncryptionButtons();
             promptFileCatalog = null;
             promptHighlight = { available: '', selected: '' };
             updateContextButton();
@@ -1946,6 +2012,64 @@
             }
         }
 
+        async function changeEncryptedPassphrase() {
+            if (!currentEncrypted || !currentFilePath) {
+                alert('Open an encrypted file first.');
+                return;
+            }
+            const record = WriterCrypto.recall(currentFilePath);
+            if (!record) {
+                alert('Unlock this file before changing its passphrase.');
+                return;
+            }
+            if (autosaveInFlight) {
+                alert('Wait for the current save to finish, then try again.');
+                return;
+            }
+            clearTimeout(saveTimer);
+            saveTimer = null;
+            pendingAutosave = false;
+            const current = await askPassphrase(false, 'Current file passphrase');
+            if (!current) return;
+            try {
+                const envelope = currentEnvelope || await WriterCrypto.seal(record, editor.value);
+                await WriterCrypto.open(envelope, current);
+            } catch (_error) {
+                alert('Current passphrase is wrong.');
+                return;
+            }
+            const next = await askPassphrase(true, 'New file passphrase');
+            if (!next) return;
+            if (next === current) {
+                alert('Choose a different passphrase.');
+                return;
+            }
+            try {
+                const created = await WriterCrypto.rewrap(editor.value, next, record);
+                const res = await fetch('/api/file/rekey', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        vault: currentVault(),
+                        file_path: currentFilePath,
+                        content: created.envelope,
+                        verifier: created.verifier,
+                        expected_revision: currentRevision || null,
+                    }),
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) throw new Error(data.detail || 'Could not change passphrase');
+                WriterCrypto.remember(currentFilePath, created.record);
+                currentEnvelope = created.envelope;
+                currentRevision = data.revision || currentRevision;
+                lastSavedContent = editor.value;
+                setSaveStatus('Saved');
+                syncEncryptionButtons();
+            } catch (error) {
+                alert(error.message || 'Could not change passphrase.');
+            }
+        }
+
         async function createNewFolder(folder) {
             hideContextMenu();
             const result = await postFileOp('/api/file/mkdir', {
@@ -2284,12 +2408,15 @@
                     : currentFilePath === path;
                 if (!gone) return;
                 currentFilePath = '';
+                currentEncrypted = false;
+                currentEnvelope = '';
                 editor.value = '';
                 lastSavedContent = '';
                 rememberOpenFile('');
                 updateFilenameLabel();
                 setSaveStatus('Unsaved', 'text-amber-400');
                 updateEditorStats(true);
+                syncEncryptionButtons();
             };
             for (const item of [
                 ...files.map(path => ({ path, folder: false })),
@@ -2338,13 +2465,6 @@
                     }
                 }
                 if (proofFailed) break;
-                const affectsOpen = currentFilePath && (
-                    currentFilePath === item.path || (item.folder && currentFilePath.startsWith(`${item.path}/`))
-                );
-                if (affectsOpen && currentEncrypted) {
-                    lockEncryptedSession('deleted');
-                    if (!(await clearAllChat())) break;
-                }
                 const res = await fetch('/api/file/delete-confirmed', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -2361,7 +2481,11 @@
                     alert(data.detail || `Could not delete ${item.path}`);
                     break;
                 }
+                WriterCrypto.forgetUnder(item.path);
                 clearIfGone(item.path, item.folder);
+                if ((manifest.encrypted_ids || []).length && WriterCrypto.keyCount() === 0 && encryptedSessionOpened) {
+                    clearAllChat(true);
+                }
             }
             treeSelection.clear();
             await loadFiles();
@@ -3787,7 +3911,6 @@
 
         const FIND_FIELD_IDS = ['find-query', 'find-replace', 'find-regex', 'find-word', 'find-case'];
         const FIND_FIELD_SET = new Set(FIND_FIELD_IDS);
-        let isolatedFields = null;
 
         function findBarClosed() {
             const bar = document.getElementById('find-bar');
@@ -3799,64 +3922,7 @@
             FIND_FIELD_IDS.forEach((id) => {
                 const el = document.getElementById(id);
                 if (!el) return;
-                if (isolatedFields && document.activeElement === el) return;
-                if (isolatedFields && !closed) return;
                 el.disabled = closed;
-            });
-        }
-
-        function isiOSFieldBar() {
-            const ua = navigator.userAgent || '';
-            const touch = navigator.maxTouchPoints > 1;
-            if (/iPhone|iPad|iPod/.test(ua)) return true;
-            return touch && /Macintosh/.test(ua);
-        }
-
-        function rememberIsolatedFields() {
-            const live = document.querySelectorAll('input, textarea, select');
-            if (!isolatedFields) {
-                isolatedFields = Array.from(live).map((field) => ({
-                    field,
-                    wasDisabled: field.disabled,
-                }));
-                return;
-            }
-            const known = new Set(isolatedFields.map((entry) => entry.field));
-            live.forEach((field) => {
-                if (known.has(field)) return;
-                isolatedFields.push({ field, wasDisabled: field.disabled });
-            });
-        }
-
-        function isolateField(active) {
-            if (!isiOSFieldBar() || !active || !window.WriterFields) return;
-            rememberIsolatedFields();
-            isolatedFields.forEach(({ field }) => {
-                field.disabled = WriterFields.disabledDuringFocus(field === active);
-            });
-        }
-
-        function restoreIsolatedFields() {
-            if (!isolatedFields || !window.WriterFields) return;
-            const saved = isolatedFields;
-            isolatedFields = null;
-            const closed = findBarClosed();
-            saved.forEach(({ field, wasDisabled }) => {
-                const keep = WriterFields.shouldKeepDisabled
-                    ? WriterFields.shouldKeepDisabled(wasDisabled, closed, FIND_FIELD_SET.has(field.id))
-                    : WriterFields.disabledAfterBlur(wasDisabled);
-                field.disabled = keep;
-            });
-            syncFindFields();
-        }
-
-        function bindFieldIsolation(el) {
-            if (!el) return;
-            el.addEventListener('focus', () => isolateField(el));
-            el.addEventListener('blur', () => {
-                // Re-enabling every field on blur is what brings Safari's arrows
-                // and Find strip back. Keep isolation until another field is focused.
-                if (!isiOSFieldBar()) restoreIsolatedFields();
             });
         }
 
@@ -3865,7 +3931,6 @@
             const bar = document.getElementById('find-bar');
             const open = force === undefined ? bar.classList.contains('hidden') : !!force;
             bar.classList.toggle('hidden', !open);
-            if (open) restoreIsolatedFields();
             syncFindFields();
             if (open) {
                 const query = document.getElementById('find-query');
@@ -3896,16 +3961,28 @@
             pane.scrollTop = 0;
         }
 
+        let unlockInFlight = false;
+
+        async function unlockCurrentFile() {
+            if (unlockInFlight || !editorIsLocked()) return;
+            unlockInFlight = true;
+            try {
+                await openFile(currentFilePath);
+            } finally {
+                unlockInFlight = false;
+            }
+        }
+
         function toggleMarkdownPreview(force) {
             const next = force === undefined ? !previewOn : !!force;
             previewOn = next;
-            editor.classList.toggle('hidden', previewOn);
-            document.getElementById('markdown-preview').classList.toggle('hidden', !previewOn);
             const toggle = document.getElementById('preview-toggle');
             toggle.classList.toggle('is-on', previewOn);
             toggle.setAttribute('aria-checked', previewOn ? 'true' : 'false');
+            if (previewOn) document.getElementById('find-bar').classList.add('hidden');
+            syncEditorLock();
+            if (editorIsLocked()) return;
             if (previewOn) {
-                document.getElementById('find-bar').classList.add('hidden');
                 renderMarkdownPreview();
                 document.getElementById('markdown-preview').focus();
             } else {
@@ -4285,35 +4362,7 @@
             window.addEventListener('orientationchange', () => setTimeout(syncHeaderHeight, 200));
             bindBubbleMenu(document.getElementById('chat-messages'));
             bindBubbleMenu(document.getElementById('guppy-messages'));
-            bindFieldIsolation(editor);
-            bindFieldIsolation(chatInput);
-            bindFieldIsolation(guppyInput);
-            bindFieldIsolation(document.getElementById('todo-new-input'));
-            bindFieldIsolation(document.getElementById('find-query'));
-            bindFieldIsolation(document.getElementById('find-replace'));
-            document.addEventListener('focusin', (e) => {
-                if (!isiOSFieldBar()) return;
-                const field = e.target;
-                if (!field || !field.matches || !field.matches('input, textarea, select')) return;
-                if (field.type === 'checkbox' || field.type === 'radio') return;
-                isolateField(field);
-            });
-            document.addEventListener('pointerdown', (e) => {
-                if (!isiOSFieldBar()) return;
-                const fields = document.querySelectorAll('textarea, input, select');
-                for (const field of fields) {
-                    if (field.type === 'checkbox' || field.type === 'radio') continue;
-                    const rect = field.getBoundingClientRect();
-                    const hit = e.clientX >= rect.left && e.clientX <= rect.right && e.clientY >= rect.top && e.clientY <= rect.bottom;
-                    if (!hit || rect.width === 0 || rect.height === 0) continue;
-                    if (field.disabled) field.disabled = false;
-                    if (document.activeElement !== field) field.focus();
-                    isolateField(field);
-                    break;
-                }
-            }, true);
             syncFindFields();
-            if (isiOSFieldBar()) document.documentElement.classList.add('ios-field-bar');
             syncComposerPlaceholders();
             syncFileLockSwitch();
             loadVaults();

@@ -183,12 +183,14 @@
         return `${HEADER}\n${JSON.stringify(payload)}`;
     }
 
-    async function create(passphrase, plaintext) {
+    async function create(passphrase, plaintext, previousRecord) {
         const salt = randomBytes(SALT_BYTES);
         const record = {
             iterations: ITERATIONS,
             salt: bytesToBase64(salt),
-            file_id: bytesToBase64(randomBytes(FILE_ID_BYTES)),
+            file_id: previousRecord && previousRecord.file_id
+                ? previousRecord.file_id
+                : bytesToBase64(randomBytes(FILE_ID_BYTES)),
             key: await deriveAesKey(passphrase, salt, ITERATIONS),
         };
         return {
@@ -196,6 +198,11 @@
             record,
             verifier: await deletionVerifier(passphrase, record),
         };
+    }
+
+    async function rewrap(plaintext, passphrase, previousRecord) {
+        if (!previousRecord || !previousRecord.file_id) throw new Error('Invalid key record');
+        return create(passphrase, plaintext, previousRecord);
     }
 
     async function openWithRecord(envelope, record) {
@@ -256,6 +263,15 @@
         keys.delete(String(path));
     }
 
+    function forgetUnder(path) {
+        const prefix = String(path || '');
+        if (!prefix) return;
+        const folder = `${prefix}/`;
+        Array.from(keys.keys()).forEach((key) => {
+            if (key === prefix || key.startsWith(folder)) keys.delete(key);
+        });
+    }
+
     function forgetAll() {
         keys.clear();
     }
@@ -274,6 +290,7 @@
         parseEnvelope,
         isEnvelope,
         create,
+        rewrap,
         open,
         openWithRecord,
         seal: sealRecord,
@@ -281,6 +298,7 @@
         remember,
         recall,
         forget,
+        forgetUnder,
         forgetAll,
         moveKey,
         keyCount: () => keys.size,

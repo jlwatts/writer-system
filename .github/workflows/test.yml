@@ -28,6 +28,22 @@ jobs:
           GEMINI_API_KEY: ci-placeholder-not-a-real-key
         run: python -m pytest
 
+  javascript:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Run page and crypto scripts
+        run: |
+          node tests/test_vault_crypto.mjs
+          node tests/test_page_boot.mjs
+
   lint:
     runs-on: ubuntu-latest
     steps:

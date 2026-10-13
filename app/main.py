@@ -466,6 +466,14 @@ class FileDecryptRequest(BaseModel):
     confirmed: bool = False
 
 
+class FileRekeyRequest(BaseModel):
+    vault: str = "default"
+    file_path: str
+    content: str
+    verifier: str
+    expected_revision: Optional[str] = None
+
+
 class UnlockReportRequest(BaseModel):
     vault: str = "default"
     file_id: str
@@ -1296,6 +1304,35 @@ def convert_file(req: FileConvertRequest):
         "status": "converted",
         "vault": sanitize_vault_name(req.vault),
         "filename": relative,
+        "revision": file_revision(target),
+        "file_id": envelope["file_id"],
+    }
+
+
+@app.post("/api/file/rekey")
+def rekey_file(req: FileRekeyRequest):
+    """Save a new envelope for the same encrypted identity and replace its deletion verifier."""
+    try:
+        envelope = parse_envelope(req.content)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not req.verifier:
+        raise HTTPException(status_code=400, detail="Missing deletion verifier")
+    with vault_lock(req.vault):
+        target = resolve_in_vault(req.vault, req.file_path)
+        if not is_encrypted_path(target):
+            raise HTTPException(status_code=409, detail="File is not encrypted")
+        if req.expected_revision and file_revision(target) != req.expected_revision:
+            raise HTTPException(status_code=409, detail="File changed on another device")
+        old_id = envelope_file_id(target.read_text(encoding="utf-8"))
+        if str(envelope["file_id"]) != old_id:
+            raise HTTPException(status_code=409, detail="Encrypted file identity changed")
+        atomic_write_text(target, req.content)
+        register_verifier(req.vault, str(envelope["file_id"]), req.verifier)
+    return {
+        "status": "rekeyed",
+        "vault": sanitize_vault_name(req.vault),
+        "filename": req.file_path,
         "revision": file_revision(target),
         "file_id": envelope["file_id"],
     }

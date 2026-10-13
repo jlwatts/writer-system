@@ -70,8 +70,35 @@ C.remember('old.md', first.record);
 C.moveKey('old.md', 'new.md');
 assert.equal(C.recall('old.md'), null);
 assert.equal(C.recall('new.md'), first.record);
+C.remember('keep.md', first.record);
+C.remember('notes/a.md', first.record);
+C.remember('notes/b.md', first.record);
+C.forgetUnder('notes');
+assert.equal(C.recall('keep.md'), first.record);
+assert.equal(C.recall('notes/a.md'), null);
+assert.equal(C.recall('notes/b.md'), null);
+C.forgetUnder('new.md');
+assert.equal(C.recall('new.md'), null);
+assert.equal(C.recall('keep.md'), first.record);
 C.forgetAll();
 C.forgetAll();
 assert.equal(C.keyCount(), 0);
+
+// REKEY-U-001/REKEY-U-002 — Given an unlocked record, when rewrapped with a
+// new passphrase, then file identity is stable, the old passphrase fails,
+// and the deletion verifier changes.
+const oldPass = 'old passphrase value';
+const newPass = 'new passphrase value';
+const original = await C.create(oldPass, 'keep this text');
+const rekeyed = await C.rewrap('keep this text', newPass, original.record);
+const originalPayload = C.parseEnvelope(original.envelope);
+const rekeyedPayload = C.parseEnvelope(rekeyed.envelope);
+assert.equal(rekeyedPayload.file_id, originalPayload.file_id);
+assert.notEqual(rekeyedPayload.salt, originalPayload.salt);
+assert.equal((await C.open(rekeyed.envelope, newPass)).plaintext, 'keep this text');
+await assert.rejects(C.open(rekeyed.envelope, oldPass));
+assert.notEqual(rekeyed.verifier, original.verifier);
+assert.equal(rekeyed.envelope.includes(newPass), false);
+assert.equal(rekeyed.envelope.includes(oldPass), false);
 
 console.log('vault crypto WebCrypto requirements passed');
